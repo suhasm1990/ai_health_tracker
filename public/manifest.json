@@ -1,0 +1,18 @@
+{
+  "name": "AI Health Tracker",
+  "short_name": "HealthTracker",
+  "description": "Multi-device biometric telemetry dashboard powered by Google Health API and connected wearables.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#020617",
+  "theme_color": "#020617",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "192x192 512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
