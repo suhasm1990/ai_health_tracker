@@ -18,10 +18,20 @@ let memoryTokenCache: StoredTokens = {
 };
 
 export function getCredentials(): { clientId: string; clientSecret: string; redirectUri: string } {
+  let redirectUri = process.env.GOOGLE_REDIRECT_URI;
+  if (!redirectUri) {
+    if (process.env.VERCEL_PROJECT_PRODUCTION_URL) {
+      redirectUri = `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}/api/auth/callback`;
+    } else if (process.env.VERCEL_URL) {
+      redirectUri = `https://${process.env.VERCEL_URL}/api/auth/callback`;
+    } else {
+      redirectUri = "http://localhost:3000/api/auth/callback";
+    }
+  }
   return {
     clientId: process.env.GOOGLE_CLIENT_ID || "",
     clientSecret: process.env.GOOGLE_CLIENT_SECRET || "",
-    redirectUri: process.env.GOOGLE_REDIRECT_URI || "http://localhost:3000/api/auth/callback",
+    redirectUri,
   };
 }
 

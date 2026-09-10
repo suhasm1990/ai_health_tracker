@@ -86,6 +86,42 @@ Open [http://localhost:3000](http://localhost:3000) in your browser.
 
 ---
 
+## ⚡ Deploying to Vercel
+
+Since the code is hosted on GitHub at `suhasm1990/ai_health_tracker`, deploying to Vercel is seamless:
+
+### Option A: Via Vercel Dashboard (Recommended)
+
+1. Go to [vercel.com/new](https://vercel.com/new).
+2. Under **Import Git Repository**, select **`ai_health_tracker`**.
+3. In **Environment Variables**, add the keys from your `.env.local`:
+   - `GOOGLE_CLIENT_ID`: Your Google OAuth client ID.
+   - `GOOGLE_CLIENT_SECRET`: Your Google OAuth client secret.
+   - `SESSION_SECRET`: A strong random string for encrypting user session cookies (e.g. run `openssl rand -hex 32`).
+   - `GOOGLE_HEALTH_API_VERSION`: `v4`
+   - `GOOGLE_REDIRECT_URI`: `https://<your-app-name>.vercel.app/api/auth/callback` *(or leave blank; Vercel URLs are automatically detected)*.
+   - `GEMINI_API_KEY`: Your Google AI Gemini key (or `NVIDIA_API_KEY`).
+4. Click **Deploy**.
+5. Once deployed, copy your production domain (e.g., `https://ai-health-tracker.vercel.app`), go to **Google Cloud Console > Credentials > your OAuth Client ID**, and add to **Authorized redirect URIs**:
+   ```text
+   https://<your-app-name>.vercel.app/api/auth/callback
+   ```
+
+### Option B: Via Vercel CLI
+
+```bash
+# Log in to your Vercel account
+npx vercel login
+
+# Deploy preview
+npx vercel
+
+# Deploy directly to production
+npx vercel --prod
+```
+
+---
+
 ## 🔑 Google Cloud Setup (For Live Health Data)
 
 1. Open the [Google Cloud Console](https://console.cloud.google.com/).
