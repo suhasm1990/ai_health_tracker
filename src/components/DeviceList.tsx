@@ -23,6 +23,8 @@ interface DeviceListProps {
   onSelectDevice: (id: string) => void;
   onSyncDevice: (id: string) => void;
   isSyncing: boolean;
+  onTryDemo?: () => void;
+  isDemo?: boolean;
 }
 
 export const DeviceList: React.FC<DeviceListProps> = ({
@@ -31,6 +33,8 @@ export const DeviceList: React.FC<DeviceListProps> = ({
   onSelectDevice,
   onSyncDevice,
   isSyncing,
+  onTryDemo,
+  isDemo = false,
 }) => {
   const getDeviceIcon = (type: PairedDevice["iconType"]) => {
     switch (type) {
@@ -116,6 +120,16 @@ export const DeviceList: React.FC<DeviceListProps> = ({
           <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 max-w-md mx-auto">
             Metrics on this account are recorded via mobile phone tracking (Apple Health / HealthKit) or manual logging.
           </p>
+          {onTryDemo && !isDemo && (
+            <div className="mt-4">
+              <button
+                onClick={onTryDemo}
+                className="inline-flex items-center space-x-1.5 px-3.5 py-2 bg-amber-500/10 hover:bg-amber-500/20 text-amber-700 dark:text-amber-300 border border-amber-500/30 rounded-lg text-xs font-semibold transition-colors shadow-xs"
+              >
+                <span>Explore Demo Mode with Sample Devices</span>
+              </button>
+            </div>
+          )}
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">

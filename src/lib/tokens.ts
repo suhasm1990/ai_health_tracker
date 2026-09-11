@@ -18,7 +18,7 @@ export interface StoredTokens {
 
 // In-memory token cache fallback
 let memoryTokenCache: StoredTokens = {
-  is_demo_mode: true, // Default to demo mode for immediate usability
+  is_demo_mode: false,
 };
 
 export function getCredentials(): { clientId: string; clientSecret: string; redirectUri: string } {
@@ -68,7 +68,7 @@ export async function getStoredTokens(): Promise<StoredTokens> {
         refresh_token: session.refresh_token,
         expires_at: session.expires_at,
         scopes: session.scopes,
-        is_demo_mode: session.is_demo_mode ?? (!session.access_token),
+        is_demo_mode: session.is_demo_mode ?? false,
       };
     }
   } catch {
@@ -95,7 +95,7 @@ export function saveTokens(tokens: Partial<StoredTokens>): void {
 
 export function clearTokens(): void {
   try {
-    memoryTokenCache = { is_demo_mode: true };
+    memoryTokenCache = { is_demo_mode: false };
     if (fs.existsSync(TOKEN_FILE_PATH)) {
       fs.unlinkSync(TOKEN_FILE_PATH);
     }

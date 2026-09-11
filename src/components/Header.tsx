@@ -131,19 +131,21 @@ export const Header: React.FC<HeaderProps> = ({
             <RefreshCw className={`w-4 h-4 ${isRefreshing ? "animate-spin text-emerald-500 dark:text-emerald-400" : ""}`} />
           </button>
 
-          {/* Demo Mode Toggle */}
-          <button
-            onClick={onToggleDemo}
-            className={`flex items-center space-x-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
-              authStatus.isDemo
-                ? "bg-amber-500/10 border-amber-500/30 text-amber-700 dark:text-amber-300 hover:bg-amber-500/20"
-                : "bg-emerald-500/10 border-emerald-500/30 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-500/20"
-            }`}
-            title="Toggle between Demo Sandbox and Live Google Health API"
-          >
-            <Radio className={`w-3.5 h-3.5 ${authStatus.isDemo ? "text-amber-500 dark:text-amber-400" : "text-emerald-500 dark:text-emerald-400 animate-pulse"}`} />
-            <span className="hidden sm:inline">{authStatus.isDemo ? "Demo Sandbox" : "Live Health API"}</span>
-          </button>
+          {/* Demo Mode Toggle (Only visible if currently in demo mode or user has no connected devices) */}
+          {(authStatus.isDemo || devices.length === 0) && (
+            <button
+              onClick={onToggleDemo}
+              className={`flex items-center space-x-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
+                authStatus.isDemo
+                  ? "bg-amber-500/10 border-amber-500/30 text-amber-700 dark:text-amber-300 hover:bg-amber-500/20"
+                  : "bg-emerald-500/10 border-emerald-500/30 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-500/20"
+              }`}
+              title="Toggle between Demo Sandbox and Live Google Health API"
+            >
+              <Radio className={`w-3.5 h-3.5 ${authStatus.isDemo ? "text-amber-500 dark:text-amber-400" : "text-emerald-500 dark:text-emerald-400 animate-pulse"}`} />
+              <span className="hidden sm:inline">{authStatus.isDemo ? "Demo Sandbox" : "Live Health API"}</span>
+            </button>
+          )}
 
           {/* Share Snapshot Button */}
           {onOpenShareCard && (
@@ -299,22 +301,24 @@ export const Header: React.FC<HeaderProps> = ({
             </div>
           )}
 
-          {/* Quick Action Grid: Demo Toggle & Refresh */}
-          <div className="grid grid-cols-2 gap-2">
-            <button
-              onClick={() => {
-                onToggleDemo();
-                setIsMobileMenuOpen(false);
-              }}
-              className={`flex items-center justify-center space-x-1.5 px-3 py-2.5 rounded-xl text-xs font-medium border transition-colors ${
-                authStatus.isDemo
-                  ? "bg-amber-500/10 border-amber-500/30 text-amber-700 dark:text-amber-300"
-                  : "bg-emerald-500/10 border-emerald-500/30 text-emerald-700 dark:text-emerald-300"
-              }`}
-            >
-              <Radio className={`w-3.5 h-3.5 ${authStatus.isDemo ? "text-amber-500" : "text-emerald-500 animate-pulse"}`} />
-              <span className="truncate">{authStatus.isDemo ? "Demo Sandbox" : "Live Health API"}</span>
-            </button>
+          {/* Quick Action Grid: Demo Toggle (conditional) & Refresh */}
+          <div className={`grid ${(authStatus.isDemo || devices.length === 0) ? "grid-cols-2" : "grid-cols-1"} gap-2`}>
+            {(authStatus.isDemo || devices.length === 0) && (
+              <button
+                onClick={() => {
+                  onToggleDemo();
+                  setIsMobileMenuOpen(false);
+                }}
+                className={`flex items-center justify-center space-x-1.5 px-3 py-2.5 rounded-xl text-xs font-medium border transition-colors ${
+                  authStatus.isDemo
+                    ? "bg-amber-500/10 border-amber-500/30 text-amber-700 dark:text-amber-300"
+                    : "bg-emerald-500/10 border-emerald-500/30 text-emerald-700 dark:text-emerald-300"
+                }`}
+              >
+                <Radio className={`w-3.5 h-3.5 ${authStatus.isDemo ? "text-amber-500" : "text-emerald-500 animate-pulse"}`} />
+                <span className="truncate">{authStatus.isDemo ? "Demo Sandbox" : "Live Health API"}</span>
+              </button>
+            )}
 
             <button
               onClick={() => {

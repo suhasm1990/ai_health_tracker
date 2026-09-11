@@ -10,6 +10,7 @@ interface MetricCardProps {
   icon: LucideIcon;
   iconColor: string;
   iconBg: string;
+  isLoading?: boolean;
   goal?: {
     current: number;
     target: number;
@@ -33,6 +34,7 @@ export const MetricCard: React.FC<MetricCardProps> = ({
   icon: Icon,
   iconColor,
   iconBg,
+  isLoading = false,
   goal,
   subtitle,
   badge,
@@ -53,10 +55,16 @@ export const MetricCard: React.FC<MetricCardProps> = ({
 
         {/* Main Value */}
         <div className="mt-3 flex items-baseline space-x-1.5">
-          <span className="text-3xl font-extrabold text-slate-900 dark:text-white tracking-tight">
-            {typeof value === "number" ? value.toLocaleString() : value}
-          </span>
-          {unit && <span className="text-sm font-medium text-slate-500 dark:text-slate-400">{unit}</span>}
+          {isLoading ? (
+            <div className="h-9 w-24 bg-slate-200 dark:bg-slate-800 rounded-lg animate-pulse my-0.5" />
+          ) : (
+            <>
+              <span className="text-3xl font-extrabold text-slate-900 dark:text-white tracking-tight">
+                {typeof value === "number" ? value.toLocaleString() : value}
+              </span>
+              {unit && <span className="text-sm font-medium text-slate-500 dark:text-slate-400">{unit}</span>}
+            </>
+          )}
         </div>
 
         {/* Subtitle / Goal Progress */}
@@ -65,15 +73,19 @@ export const MetricCard: React.FC<MetricCardProps> = ({
             <div className="flex justify-between items-center text-xs text-slate-500 dark:text-slate-400 mb-1.5">
               <span>{goal.label || "Daily Goal"}</span>
               <span className="font-medium text-slate-700 dark:text-slate-300">
-                {percent}% ({goal.target.toLocaleString()})
+                {isLoading ? "—" : `${percent}% (${goal.target.toLocaleString()})`}
               </span>
             </div>
             <div className="w-full bg-slate-100 dark:bg-slate-800 h-2 rounded-full overflow-hidden">
               <div
                 className={`h-full rounded-full transition-all duration-500 ${
-                  percent >= 100 ? "bg-emerald-500" : "bg-gradient-to-r from-emerald-500 to-teal-400"
+                  isLoading
+                    ? "w-1/3 bg-slate-200 dark:bg-slate-700 animate-pulse"
+                    : percent >= 100
+                    ? "bg-emerald-500"
+                    : "bg-gradient-to-r from-emerald-500 to-teal-400"
                 }`}
-                style={{ width: `${percent}%` }}
+                style={isLoading ? undefined : { width: `${percent}%` }}
               />
             </div>
           </div>
