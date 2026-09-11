@@ -112,6 +112,17 @@ export default function DashboardPage() {
         if (forceRefresh) {
           params.set("refresh", "true");
         }
+
+        try {
+          const now = new Date();
+          const clientDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+          const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+          params.set("clientDate", clientDate);
+          if (tz) params.set("tz", tz);
+        } catch {
+          // ignore
+        }
+
         const query = params.toString() ? `?${params.toString()}` : "";
         const res = await fetch(`/api/health/metrics${query}`);
         if (res.ok) {

@@ -332,7 +332,12 @@ export function calculateClinicalSleepQualityIndex(
  * - In-flight request deduplication prevents parallel requests from firing duplicate Google API queries.
  * - Single 10-day rollup query satisfies both today's metrics and 7-day history, cutting 7 redundant API calls per refresh.
  */
-export async function getAllHealthMetrics(deviceId?: string, forceRefresh = false): Promise<HealthMetricsPayload> {
+export async function getAllHealthMetrics(
+  deviceId?: string,
+  forceRefresh = false,
+  clientDate?: string,
+  clientTz?: string
+): Promise<HealthMetricsPayload> {
   const tokens = await getStoredTokens();
   if (tokens.is_demo_mode) {
     const today =
@@ -354,7 +359,7 @@ export async function getAllHealthMetrics(deviceId?: string, forceRefresh = fals
   }
 
   const userKey = tokens.access_token ? tokens.access_token.slice(-16) : "demo";
-  const cacheKey = `metrics_${deviceId || "all"}_${userKey}`;
+  const cacheKey = `metrics_${deviceId || "all"}_${clientDate || "def"}_${userKey}`;
 
   return fetchWithCache(cacheKey, 60 * 1000, forceRefresh, async () => {
     const token = await getValidAccessToken();
@@ -368,33 +373,62 @@ export async function getAllHealthMetrics(deviceId?: string, forceRefresh = fals
     }
 
     try {
-      const now = new Date();
-      const localYear = now.getFullYear();
-      const localMonth = now.getMonth() + 1;
-      const localDay = now.getDate();
-      const todayStr = `${localYear}-${String(localMonth).padStart(2, "0")}-${String(localDay).padStart(2, "0")}`;
+      let targetYear: number;
+      let targetMonth: number;
+      let targetDay: number;
 
-      // Query past 10 days of daily rollups once (satisfies both today and 7-day history)
-      const past = new Date(now.getTime() - 10 * 24 * 3600 * 1000);
-      const startYear = past.getFullYear();
-      const startMonth = past.getMonth() + 1;
-      const startDay = past.getDate();
+      if (clientDate && /^\d{4}-\d{2}-\d{2}$/.test(clientDate)) {
+        const [y, m, d] = clientDate.split("-").map(Number);
+        targetYear = y;
+        targetMonth = m;
+        targetDay = d;
+      } else if (clientTz) {
+        try {
+          const parts = new Intl.DateTimeFormat("en-US", {
+            timeZone: clientTz,
+            year: "numeric",
+            month: "numeric",
+            day: "numeric",
+          }).formatToParts(new Date());
+          targetYear = Number(parts.find((p) => p.type === "year")?.value);
+          targetMonth = Number(parts.find((p) => p.type === "month")?.value);
+          targetDay = Number(parts.find((p) => p.type === "day")?.value);
+        } catch {
+          const now = new Date();
+          targetYear = now.getFullYear();
+          targetMonth = now.getMonth() + 1;
+          targetDay = now.getDate();
+        }
+      } else {
+        const now = new Date();
+        targetYear = now.getFullYear();
+        targetMonth = now.getMonth() + 1;
+        targetDay = now.getDate();
+      }
 
-      const future = new Date(now.getTime() + 24 * 3600 * 1000);
-      const endYear = future.getFullYear();
-      const endMonth = future.getMonth() + 1;
-      const endDay = future.getDate();
+      const todayStr = `${targetYear}-${String(targetMonth).padStart(2, "0")}-${String(targetDay).padStart(2, "0")}`;
+
+      // Query past 12 days to 2 days ahead to ensure full window coverage across UTC server boundaries
+      const refDate = new Date(Date.UTC(targetYear, targetMonth - 1, targetDay, 12, 0, 0));
+      const past = new Date(refDate.getTime() - 12 * 24 * 3600 * 1000);
+      const future = new Date(refDate.getTime() + 2 * 24 * 3600 * 1000);
 
       const rangeBody = {
         range: {
-          start: { date: { year: startYear, month: startMonth, day: startDay }, time: { hours: 0, minutes: 0, seconds: 0 } },
-          end: { date: { year: endYear, month: endMonth, day: endDay }, time: { hours: 0, minutes: 0, seconds: 0 } },
+          start: {
+            date: { year: past.getUTCFullYear(), month: past.getUTCMonth() + 1, day: past.getUTCDate() },
+            time: { hours: 0, minutes: 0, seconds: 0 },
+          },
+          end: {
+            date: { year: future.getUTCFullYear(), month: future.getUTCMonth() + 1, day: future.getUTCDate() },
+            time: { hours: 23, minutes: 59, seconds: 59 },
+          },
         },
         windowSizeDays: 1,
       };
 
-      const startToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0);
-      const endToday = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 0, 0, 0);
+      const startToday = new Date(Date.UTC(targetYear, targetMonth - 1, targetDay - 1, 0, 0, 0));
+      const endToday = new Date(Date.UTC(targetYear, targetMonth - 1, targetDay + 1, 23, 59, 59));
 
       // Execute all rollups, telemetry points, and intradays in ONE concurrent batch
       const [
@@ -433,21 +467,31 @@ export async function getAllHealthMetrics(deviceId?: string, forceRefresh = fals
         fetch(`${BASE_URL}/users/me/dataTypes/height/dataPoints?pageSize=1`, {
           headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
         }).then((r) => (r.ok ? r.json() : null)).catch(() => null),
-        fetchIntradaySteps(token, startToday, endToday),
-        fetchIntradayHeartRate(token, startToday, endToday),
+        fetchIntradaySteps(token, startToday, endToday, targetYear, targetMonth, targetDay),
+        fetchIntradayHeartRate(token, startToday, endToday, targetYear, targetMonth, targetDay),
       ]);
 
-      // --- PARSE TODAY'S METRICS ---
+      // --- PARSE TODAY'S METRICS WITH ROBUST FALLBACK ---
       const findTodayPt = (pts: any[]) => {
         if (!pts || !pts.length) return null;
-        return (
-          pts.find(
-            (p: any) =>
-              p.civilStartTime?.date?.year === localYear &&
-              p.civilStartTime?.date?.month === localMonth &&
-              p.civilStartTime?.date?.day === localDay
-          ) || null
+        // 1. Exact match for target civil date
+        const match = pts.find(
+          (p: any) =>
+            p.civilStartTime?.date?.year === targetYear &&
+            p.civilStartTime?.date?.month === targetMonth &&
+            p.civilStartTime?.date?.day === targetDay
         );
+        if (match) return match;
+
+        // 2. Fallback to most recent recorded civil date
+        const sorted = [...pts]
+          .filter((p: any) => p.civilStartTime?.date)
+          .sort((a: any, b: any) => {
+            const da = a.civilStartTime.date;
+            const db = b.civilStartTime.date;
+            return db.year - da.year || db.month - da.month || db.day - da.day;
+          });
+        return sorted[0] || null;
       };
 
       let steps = 0;
@@ -514,10 +558,13 @@ export async function getAllHealthMetrics(deviceId?: string, forceRefresh = fals
       let oxygenSaturationSamples = 0;
 
       if (spo2Data?.dataPoints?.length) {
-        const todayPoints = (spo2Data.dataPoints || []).filter((p: any) => {
+        let todayPoints = (spo2Data.dataPoints || []).filter((p: any) => {
           const cd = p.oxygenSaturation?.sampleTime?.civilTime?.date;
-          return cd?.year === localYear && cd?.month === localMonth && cd?.day === localDay;
+          return cd?.year === targetYear && cd?.month === targetMonth && cd?.day === targetDay;
         });
+        if (!todayPoints.length) {
+          todayPoints = (spo2Data.dataPoints || []).slice(0, 50);
+        }
         const pcts: number[] = todayPoints
           .map((p: any) => Number(p.oxygenSaturation?.percentage))
           .filter((n: number) => !isNaN(n) && n > 0);
@@ -761,7 +808,14 @@ async function queryRollup(token: string, dataType: string, body: any): Promise<
   return res.json();
 }
 
-async function fetchIntradaySteps(token: string, startToday: Date, endToday: Date): Promise<IntradayStepPoint[]> {
+async function fetchIntradaySteps(
+  token: string,
+  startToday: Date,
+  endToday: Date,
+  targetYear?: number,
+  targetMonth?: number,
+  targetDay?: number
+): Promise<IntradayStepPoint[]> {
   try {
     const rollUpRes = await fetch(`${BASE_URL}/users/me/dataTypes/steps/dataPoints:rollUp`, {
       method: "POST",
@@ -781,14 +835,25 @@ async function fetchIntradaySteps(token: string, startToday: Date, endToday: Dat
         }
 
         for (const pt of data.rollupDataPoints) {
-          const dObj = new Date(pt.startTime);
-          const h = dObj.getHours();
-          const hourKey = `${h.toString().padStart(2, "0")}:00`;
+          const civilH = pt.civilStartTime?.time?.hours;
+          let hourKey: string;
+          if (typeof civilH === "number") {
+            hourKey = `${civilH.toString().padStart(2, "0")}:00`;
+          } else {
+            const dObj = new Date(pt.startTime);
+            const h = dObj.getHours();
+            hourKey = `${h.toString().padStart(2, "0")}:00`;
+          }
           const count = Number(pt.steps?.countSum || 0);
-          hourlyMap[hourKey] = (hourlyMap[hourKey] || 0) + count;
+          if (hourlyMap[hourKey] !== undefined) {
+            hourlyMap[hourKey] += count;
+          }
         }
 
-        return Object.entries(hourlyMap).map(([time, steps]) => ({ time, steps }));
+        const totalSteps = Object.values(hourlyMap).reduce((a, b) => a + b, 0);
+        if (totalSteps > 0) {
+          return Object.entries(hourlyMap).map(([time, steps]) => ({ time, steps }));
+        }
       }
     }
 
@@ -800,9 +865,21 @@ async function fetchIntradaySteps(token: string, startToday: Date, endToday: Dat
     if (res.ok) {
       const data = await res.json();
       if (data.dataPoints && data.dataPoints.length > 0) {
-        const localYear = startToday.getFullYear();
-        const localMonth = startToday.getMonth() + 1;
-        const localDay = startToday.getDate();
+        let filterYear = targetYear || startToday.getUTCFullYear();
+        let filterMonth = targetMonth || (startToday.getUTCMonth() + 1);
+        let filterDay = targetDay || startToday.getUTCDate();
+
+        const hasTarget = data.dataPoints.some((pt: any) => {
+          const cd = pt.steps?.interval?.civilStartTime?.date;
+          return cd && cd.year === filterYear && cd.month === filterMonth && cd.day === filterDay;
+        });
+
+        if (!hasTarget && data.dataPoints[0]?.steps?.interval?.civilStartTime?.date) {
+          const latestCd = data.dataPoints[0].steps.interval.civilStartTime.date;
+          filterYear = latestCd.year;
+          filterMonth = latestCd.month;
+          filterDay = latestCd.day;
+        }
 
         const hourlyMap: Record<string, number> = {};
         for (let i = 0; i < 24; i++) {
@@ -814,9 +891,9 @@ async function fetchIntradaySteps(token: string, startToday: Date, endToday: Dat
           const civilTime = pt.steps?.interval?.civilStartTime?.time;
           if (
             civilDate &&
-            civilDate.year === localYear &&
-            civilDate.month === localMonth &&
-            civilDate.day === localDay
+            civilDate.year === filterYear &&
+            civilDate.month === filterMonth &&
+            civilDate.day === filterDay
           ) {
             const h = civilTime?.hours ?? 0;
             const hourKey = `${h.toString().padStart(2, "0")}:00`;
@@ -837,7 +914,14 @@ async function fetchIntradaySteps(token: string, startToday: Date, endToday: Dat
   return MOCK_INTRADAY_STEPS;
 }
 
-async function fetchIntradayHeartRate(token: string, startToday: Date, endToday: Date): Promise<IntradayHeartRatePoint[]> {
+async function fetchIntradayHeartRate(
+  token: string,
+  startToday: Date,
+  endToday: Date,
+  targetYear?: number,
+  targetMonth?: number,
+  targetDay?: number
+): Promise<IntradayHeartRatePoint[]> {
   try {
     const rollUpRes = await fetch(`${BASE_URL}/users/me/dataTypes/heart-rate/dataPoints:rollUp`, {
       method: "POST",
@@ -863,23 +947,32 @@ async function fetchIntradayHeartRate(token: string, startToday: Date, endToday:
         }
 
         for (const pt of rollUpData.rollupDataPoints) {
-          const dObj = new Date(pt.startTime);
-          const h = dObj.getHours();
-          const hourKey = `${h.toString().padStart(2, "0")}:00`;
+          const civilH = pt.civilStartTime?.time?.hours;
+          let hourKey: string;
+          if (typeof civilH === "number") {
+            hourKey = `${civilH.toString().padStart(2, "0")}:00`;
+          } else {
+            const dObj = new Date(pt.startTime);
+            const h = dObj.getHours();
+            hourKey = `${h.toString().padStart(2, "0")}:00`;
+          }
           const bpm = Math.round(pt.heartRate?.beatsPerMinuteAvg || 0);
           if (bpm > 0) {
             hourlyMap[hourKey] = bpm;
           }
         }
 
-        return Object.entries(hourlyMap).map(([time, bpm]) => {
-          let zone: IntradayHeartRatePoint["zone"] = "Resting";
-          if (bpm >= 135) zone = "Peak";
-          else if (bpm >= 115) zone = "Cardio";
-          else if (bpm >= 85) zone = "Fat Burn";
+        const hasBpm = Object.values(hourlyMap).some((v) => v > 0);
+        if (hasBpm) {
+          return Object.entries(hourlyMap).map(([time, bpm]) => {
+            let zone: IntradayHeartRatePoint["zone"] = "Resting";
+            if (bpm >= 135) zone = "Peak";
+            else if (bpm >= 115) zone = "Cardio";
+            else if (bpm >= 85) zone = "Fat Burn";
 
-          return { time, bpm, zone };
-        });
+            return { time, bpm, zone };
+          });
+        }
       }
     }
   } catch (err) {

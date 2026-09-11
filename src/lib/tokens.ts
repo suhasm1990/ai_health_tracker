@@ -1,8 +1,12 @@
 import fs from "fs";
 import path from "path";
+import os from "os";
 import { getSession } from "./session";
 
-const TOKEN_FILE_PATH = path.join(process.cwd(), ".tokens.json");
+const IS_SERVERLESS = Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME);
+const TOKEN_FILE_PATH = IS_SERVERLESS
+  ? path.join(os.tmpdir(), ".tokens.json")
+  : path.join(process.cwd(), ".tokens.json");
 
 export interface StoredTokens {
   access_token?: string;
@@ -81,8 +85,10 @@ export function saveTokens(tokens: Partial<StoredTokens>): void {
     const updated = { ...existing, ...tokens };
     memoryTokenCache = updated;
     fs.writeFileSync(TOKEN_FILE_PATH, JSON.stringify(updated, null, 2), "utf-8");
-  } catch (err) {
-    console.error("Error saving token file:", err);
+  } catch (err: any) {
+    if (err?.code !== "EROFS") {
+      console.warn("Could not persist token file to disk (using in-memory):", err?.message || err);
+    }
     memoryTokenCache = { ...memoryTokenCache, ...tokens };
   }
 }
