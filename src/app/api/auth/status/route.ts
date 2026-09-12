@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
-import { getStoredTokens, getCredentials, saveTokens } from "@/lib/tokens";
+import { getStoredTokens, getCredentials } from "@/lib/tokens";
 import { getUserProfile, invalidateApiCache, GOOGLE_HEALTH_API_VERSION } from "@/lib/googleHealthApi";
 import { resolveLlmConfig } from "@/lib/llm/agent";
-import { getSession, setSessionCookie } from "@/lib/session";
+import { getSession, setSessionCookie, UserSession } from "@/lib/session";
 
 export async function GET(request: Request) {
   const url = new URL(request.url);
@@ -10,14 +10,15 @@ export async function GET(request: Request) {
   const tokens = await getStoredTokens();
   const { clientId, clientSecret } = getCredentials();
   const hasValidToken = Boolean(tokens.access_token);
-  const user = await getUserProfile(forceRefresh);
+  const isDemo = !hasValidToken || Boolean(tokens.is_demo_mode);
+  const user = hasValidToken ? await getUserProfile(forceRefresh) : undefined;
   const llmConfig = resolveLlmConfig();
 
   return NextResponse.json({
     isAuthenticated: hasValidToken,
-    isDemo: tokens.is_demo_mode ?? !hasValidToken,
+    isDemo,
     user,
-    scopesGranted: tokens.scopes || [],
+    scopesGranted: hasValidToken ? (tokens.scopes || []) : [],
     hasCredentials: Boolean(clientId && clientSecret),
     clientId: clientId ? `${clientId.slice(0, 8)}...` : "",
     apiVersion: GOOGLE_HEALTH_API_VERSION,
@@ -34,11 +35,10 @@ export async function POST(request: Request) {
   try {
     const body = await request.json();
     if (body.action === "toggle_demo") {
-      const session = (await getSession()) || (await getStoredTokens());
-      const updatedSession = { ...session, is_demo_mode: Boolean(body.isDemo) };
+      const session = (await getSession()) || {};
+      const updatedSession: UserSession = { ...session, is_demo_mode: Boolean(body.isDemo) };
       const res = NextResponse.json({ success: true, isDemo: body.isDemo });
       setSessionCookie(res, updatedSession);
-      saveTokens({ is_demo_mode: Boolean(body.isDemo) });
       invalidateApiCache();
       return res;
     }

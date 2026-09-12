@@ -1,12 +1,4 @@
-import fs from "fs";
-import path from "path";
-import os from "os";
-import { getSession } from "./session";
-
-const IS_SERVERLESS = Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME);
-const TOKEN_FILE_PATH = IS_SERVERLESS
-  ? path.join(os.tmpdir(), ".tokens.json")
-  : path.join(process.cwd(), ".tokens.json");
+import { getSession, updateSession } from "./session";
 
 export interface StoredTokens {
   access_token?: string;
@@ -15,11 +7,6 @@ export interface StoredTokens {
   scopes?: string[];
   is_demo_mode?: boolean;
 }
-
-// In-memory token cache fallback
-let memoryTokenCache: StoredTokens = {
-  is_demo_mode: false,
-};
 
 export function getCredentials(): { clientId: string; clientSecret: string; redirectUri: string } {
   let redirectUri = process.env.GOOGLE_REDIRECT_URI;
@@ -40,29 +27,24 @@ export function getCredentials(): { clientId: string; clientSecret: string; redi
 }
 
 /**
- * Synchronously reads tokens from memory / .tokens.json for sync helper functions.
+ * Synchronous token accessor for non-async helper contexts.
+ * Always defaults safely to demo mode without leaking shared server state.
  */
 export function getStoredTokensSync(): StoredTokens {
-  try {
-    if (fs.existsSync(TOKEN_FILE_PATH)) {
-      const data = fs.readFileSync(TOKEN_FILE_PATH, "utf-8");
-      return { ...memoryTokenCache, ...JSON.parse(data) };
-    }
-  } catch (err) {
-    console.error("Error reading token file:", err);
-  }
-  return memoryTokenCache;
+  return {
+    is_demo_mode: true,
+  };
 }
 
 /**
- * Primary token accessor: reads the user's isolated encrypted session cookie first,
- * then falls back to local disk tokens for headless CLI contexts.
+ * Primary token accessor: reads the user's isolated encrypted session cookie.
+ * In a web request context, if no session cookie exists (e.g. Incognito mode or logged out),
+ * it returns unauthenticated demo mode so that no other user's session is ever leaked.
  */
 export async function getStoredTokens(): Promise<StoredTokens> {
-  // 1. Check user-specific encrypted session cookie
   try {
     const session = await getSession();
-    if (session) {
+    if (session?.access_token) {
       return {
         access_token: session.access_token,
         refresh_token: session.refresh_token,
@@ -71,37 +53,36 @@ export async function getStoredTokens(): Promise<StoredTokens> {
         is_demo_mode: session.is_demo_mode ?? false,
       };
     }
+    if (session && session.is_demo_mode !== undefined) {
+      return {
+        is_demo_mode: session.is_demo_mode,
+        scopes: session.scopes,
+      };
+    }
   } catch {
-    // Expected when called outside Next.js request context
+    // Expected when called outside Next.js request context (e.g. static build)
   }
 
-  // 2. Fallback to local dev disk tokens
-  return getStoredTokensSync();
+  // Safe default: unauthenticated Demo Sandbox mode
+  return {
+    is_demo_mode: true,
+  };
 }
 
-export function saveTokens(tokens: Partial<StoredTokens>): void {
-  try {
-    const existing = getStoredTokensSync();
-    const updated = { ...existing, ...tokens };
-    memoryTokenCache = updated;
-    fs.writeFileSync(TOKEN_FILE_PATH, JSON.stringify(updated, null, 2), "utf-8");
-  } catch (err: any) {
-    if (err?.code !== "EROFS") {
-      console.warn("Could not persist token file to disk (using in-memory):", err?.message || err);
-    }
-    memoryTokenCache = { ...memoryTokenCache, ...tokens };
-  }
+/**
+ * Retained for backwards compatibility with existing route imports.
+ * Server-side tokens are never saved to shared global files or memory to maintain strict tenant isolation.
+ */
+export function saveTokens(_tokens: Partial<StoredTokens>): void {
+  // Intentional no-op: tokens are exclusively persisted inside client's encrypted session cookie
 }
 
+/**
+ * Retained for backwards compatibility with existing route imports.
+ * Session termination is handled via clearSessionCookie().
+ */
 export function clearTokens(): void {
-  try {
-    memoryTokenCache = { is_demo_mode: false };
-    if (fs.existsSync(TOKEN_FILE_PATH)) {
-      fs.unlinkSync(TOKEN_FILE_PATH);
-    }
-  } catch (err) {
-    console.error("Error clearing token file:", err);
-  }
+  // Intentional no-op: cookie clearing handles session invalidation
 }
 
 export async function getValidAccessToken(): Promise<string | null> {
@@ -150,10 +131,17 @@ export async function refreshAccessToken(refreshToken: string): Promise<string |
     }
 
     const data = await response.json();
-    saveTokens({
-      access_token: data.access_token,
-      expires_at: Date.now() + (data.expires_in || 3600) * 1000,
-    });
+    const newExpiresAt = Date.now() + (data.expires_in || 3600) * 1000;
+
+    // Securely update session cookie if inside a Route Handler context
+    try {
+      await updateSession({
+        access_token: data.access_token,
+        expires_at: newExpiresAt,
+      });
+    } catch {
+      // Ignore if called in a read-only Server Component context
+    }
 
     return data.access_token;
   } catch (err) {

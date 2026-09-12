@@ -18,13 +18,33 @@ export interface UserSession {
   };
 }
 
-// Derive a consistent 32-byte key for AES-256-GCM from SESSION_SECRET, GOOGLE_CLIENT_SECRET, or a stable default
+// Derive a high-entropy 32-byte key for AES-256-GCM using HKDF (RFC 5869)
 function getEncryptionKey(): Buffer {
   const secret =
     process.env.SESSION_SECRET ||
-    process.env.GOOGLE_CLIENT_SECRET ||
-    "google-health-default-secret-salt-2026";
-  return crypto.createHash("sha256").update(secret).digest();
+    process.env.GOOGLE_CLIENT_SECRET;
+
+  if (!secret) {
+    if (process.env.NODE_ENV === "production") {
+      throw new Error(
+        "CRITICAL SECURITY CONFIGURATION ERROR: SESSION_SECRET or GOOGLE_CLIENT_SECRET must be set in production to encrypt session cookies."
+      );
+    }
+    // Development-only deterministic secret fallback
+    return Buffer.from(
+      crypto.hkdfSync(
+        "sha256",
+        "google-health-dev-local-secret-key-salt-2026",
+        "health-app-salt",
+        "session-encryption-key",
+        32
+      )
+    );
+  }
+
+  return Buffer.from(
+    crypto.hkdfSync("sha256", secret, "google-health-salt", "session-encryption-key", 32)
+  );
 }
 
 /**
@@ -86,6 +106,29 @@ export async function getSession(): Promise<UserSession | null> {
     return decryptSession(cookieVal);
   } catch {
     return null;
+  }
+}
+
+/**
+ * Updates the user's encrypted session cookie in a Route Handler or Server Action context.
+ */
+export async function updateSession(updatedFields: Partial<UserSession>): Promise<boolean> {
+  try {
+    const session = await getSession();
+    if (!session) return false;
+    const updated: UserSession = { ...session, ...updatedFields };
+    const cookieStore = await cookies();
+    const encrypted = encryptSession(updated);
+    cookieStore.set(SESSION_COOKIE_NAME, encrypted, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax",
+      path: "/",
+      maxAge: 60 * 60 * 24 * 30, // 30 days
+    });
+    return true;
+  } catch {
+    return false;
   }
 }
 

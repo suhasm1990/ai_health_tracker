@@ -1,4 +1,5 @@
 import { getValidAccessToken, getStoredTokens } from "./tokens";
+import { getSession } from "./session";
 import {
   PairedDevice,
   DailyMetricSummary,
@@ -38,7 +39,7 @@ export interface HealthMetricsPayload {
  */
 export async function getPairedDevices(forceRefresh = false): Promise<PairedDevice[]> {
   const tokens = await getStoredTokens();
-  if (tokens.is_demo_mode) {
+  if (tokens.is_demo_mode || !tokens.access_token) {
     return MOCK_DEVICES;
   }
 
@@ -208,24 +209,35 @@ function mapDevice(d: any, idx: number): PairedDevice {
 
 /**
  * Retrieves the user profile with a 5-minute in-memory cache.
+ * Returns null if the user is in demo mode or unauthenticated.
  */
-export async function getUserProfile(forceRefresh = false): Promise<UserProfile> {
+export async function getUserProfile(forceRefresh = false): Promise<UserProfile | null> {
   const tokens = await getStoredTokens();
-  if (tokens.is_demo_mode) {
-    return MOCK_USER;
+  if (tokens.is_demo_mode || !tokens.access_token) {
+    return null;
   }
 
-  const userKey = tokens.access_token ? tokens.access_token.slice(-16) : "demo";
+  // Check if user info was already extracted during OAuth callback and stored in session
+  try {
+    const session = await getSession();
+    if (session?.user?.displayName && !forceRefresh) {
+      return {
+        id: session.user.id || "me",
+        displayName: session.user.displayName,
+        email: session.user.email || "",
+        avatarUrl: session.user.avatarUrl,
+        unitSystem: "METRIC",
+      };
+    }
+  } catch {
+    // Ignore outside request context
+  }
+
+  const userKey = tokens.access_token.slice(-16);
   return fetchWithCache(`user_profile_${userKey}`, 5 * 60 * 1000, forceRefresh, async () => {
     const token = await getValidAccessToken();
     if (!token) {
-      return {
-        id: "me",
-        displayName: "Google Health User",
-        email: "",
-        avatarUrl: undefined,
-        unitSystem: "METRIC",
-      };
+      return null;
     }
 
     try {
@@ -247,13 +259,7 @@ export async function getUserProfile(forceRefresh = false): Promise<UserProfile>
       console.error("Error fetching userinfo:", err);
     }
 
-    return {
-      id: "me",
-      displayName: "Google Health User",
-      email: "",
-      avatarUrl: undefined,
-      unitSystem: "METRIC",
-    };
+    return null;
   });
 }
 
@@ -339,7 +345,7 @@ export async function getAllHealthMetrics(
   clientTz?: string
 ): Promise<HealthMetricsPayload> {
   const tokens = await getStoredTokens();
-  if (tokens.is_demo_mode) {
+  if (tokens.is_demo_mode || !tokens.access_token) {
     const today =
       deviceId === "pixel-watch-03"
         ? {

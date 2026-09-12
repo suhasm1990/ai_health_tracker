@@ -51,10 +51,14 @@ export const Header: React.FC<HeaderProps> = ({
 
   const handleLogout = async () => {
     try {
+      try {
+        localStorage.removeItem("gh_synced_metrics");
+      } catch {}
       await fetch("/api/auth/logout", { method: "POST" });
-      window.location.reload();
+      window.location.href = "/";
     } catch (err) {
       console.error(err);
+      window.location.href = "/";
     }
   };
 

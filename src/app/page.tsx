@@ -41,7 +41,7 @@ export default async function DashboardPage() {
   const tokens = await getStoredTokens();
   const { clientId, clientSecret } = getCredentials();
   const hasValidToken = Boolean(tokens.access_token);
-  const isDemo = Boolean(tokens.is_demo_mode);
+  const isDemo = !hasValidToken || Boolean(tokens.is_demo_mode);
   const user = hasValidToken ? await getUserProfile().catch(() => null) : null;
 
   const initialAuthStatus: AuthStatus = {
@@ -49,7 +49,7 @@ export default async function DashboardPage() {
     isDemo,
     hasCredentials: Boolean(clientId && clientSecret),
     user: user || undefined,
-    scopesGranted: tokens.scopes || [],
+    scopesGranted: hasValidToken ? (tokens.scopes || []) : [],
   };
 
   let initialDevices: PairedDevice[] = [];
