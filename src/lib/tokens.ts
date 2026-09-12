@@ -104,6 +104,9 @@ export async function getValidAccessToken(): Promise<string | null> {
   return tokens.access_token;
 }
 
+// In-flight refresh promise map keyed by refresh token suffix to collapse concurrent requests
+const inFlightRefreshes = new Map<string, Promise<string | null>>();
+
 export async function refreshAccessToken(refreshToken: string): Promise<string | null> {
   const { clientId, clientSecret } = getCredentials();
   if (!clientId || !clientSecret) {
@@ -111,41 +114,54 @@ export async function refreshAccessToken(refreshToken: string): Promise<string |
     return null;
   }
 
-  try {
-    const response = await fetch("https://oauth2.googleapis.com/token", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/x-www-form-urlencoded",
-      },
-      body: new URLSearchParams({
-        client_id: clientId,
-        client_secret: clientSecret,
-        refresh_token: refreshToken,
-        grant_type: "refresh_token",
-      }),
-    });
-
-    if (!response.ok) {
-      console.error("Failed to refresh token:", await response.text());
-      return null;
-    }
-
-    const data = await response.json();
-    const newExpiresAt = Date.now() + (data.expires_in || 3600) * 1000;
-
-    // Securely update session cookie if inside a Route Handler context
-    try {
-      await updateSession({
-        access_token: data.access_token,
-        expires_at: newExpiresAt,
-      });
-    } catch {
-      // Ignore if called in a read-only Server Component context
-    }
-
-    return data.access_token;
-  } catch (err) {
-    console.error("Token refresh network error:", err);
-    return null;
+  const dedupeKey = refreshToken.slice(-16);
+  const existing = inFlightRefreshes.get(dedupeKey);
+  if (existing) {
+    return existing;
   }
+
+  const refreshPromise = (async () => {
+    try {
+      const response = await fetch("https://oauth2.googleapis.com/token", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+        },
+        body: new URLSearchParams({
+          client_id: clientId,
+          client_secret: clientSecret,
+          refresh_token: refreshToken,
+          grant_type: "refresh_token",
+        }),
+      });
+
+      if (!response.ok) {
+        console.error("Failed to refresh token:", await response.text());
+        return null;
+      }
+
+      const data = await response.json();
+      const newExpiresAt = Date.now() + (data.expires_in || 3600) * 1000;
+
+      // Securely update session cookie if inside a Route Handler context
+      try {
+        await updateSession({
+          access_token: data.access_token,
+          expires_at: newExpiresAt,
+        });
+      } catch {
+        // Ignore if called in a read-only Server Component context
+      }
+
+      return data.access_token as string;
+    } catch (err) {
+      console.error("Token refresh network error:", err);
+      return null;
+    } finally {
+      inFlightRefreshes.delete(dedupeKey);
+    }
+  })();
+
+  inFlightRefreshes.set(dedupeKey, refreshPromise);
+  return refreshPromise;
 }

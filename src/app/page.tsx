@@ -1,5 +1,5 @@
 import { getStoredTokens, getCredentials } from "@/lib/tokens";
-import { getUserProfile, getAllHealthMetrics, getPairedDevices } from "@/lib/googleHealthApi";
+import { getUserProfile } from "@/lib/googleHealthApi";
 import { DashboardClient } from "@/components/DashboardClient";
 import { AuthStatus, DailyMetricSummary, PairedDevice, IntradayStepPoint, IntradayHeartRatePoint } from "@/lib/types";
 import {
@@ -75,20 +75,11 @@ export default async function DashboardPage() {
       history7Days: MOCK_HISTORY_7_DAYS,
     };
     hasInitialMetrics = true;
-  } else if (hasValidToken) {
-    try {
-      const [devices, metrics] = await Promise.all([
-        getPairedDevices().catch(() => []),
-        getAllHealthMetrics().catch(() => null),
-      ]);
-      initialDevices = devices || [];
-      if (metrics) {
-        initialMetrics = metrics;
-        hasInitialMetrics = true;
-      }
-    } catch (err) {
-      console.error("Error pre-fetching initial health data:", err);
-    }
+  } else {
+    // For authenticated users, immediately deliver the shell & profile (< 100ms)
+    // without blocking the browser on 15+ external Google Health queries.
+    // DashboardClient asynchronously streams in live metrics with shimmer skeletons.
+    hasInitialMetrics = false;
   }
 
   return (

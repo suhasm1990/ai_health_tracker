@@ -74,21 +74,7 @@ export function DashboardClient({
     setTimeout(() => setToastMessage(null), 4000);
   };
 
-  // Restore client-cached metrics from previous sync if server didn't provide fresh metrics
-  useEffect(() => {
-    if (!hasInitialMetrics && !authStatus.isDemo) {
-      try {
-        const cached = localStorage.getItem("gh_synced_metrics");
-        if (cached) {
-          const parsed = JSON.parse(cached);
-          if (parsed?.today) {
-            setMetrics(parsed);
-            setIsInitialLoading(false);
-          }
-        }
-      } catch {}
-    }
-  }, [hasInitialMetrics, authStatus.isDemo]);
+
 
   const fetchAuthStatus = async () => {
     try {
@@ -147,11 +133,6 @@ export function DashboardClient({
         if (res.ok) {
           const data = await res.json();
           setMetrics(data);
-          if (!authStatus.isDemo) {
-            try {
-              localStorage.setItem("gh_synced_metrics", JSON.stringify(data));
-            } catch {}
-          }
         }
       } catch (err) {
         console.error("Failed to fetch metrics:", err);

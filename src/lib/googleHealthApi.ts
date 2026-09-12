@@ -464,7 +464,7 @@ export async function getAllHealthMetrics(
         fetch(`${BASE_URL}/users/me/dataTypes/heart-rate-variability/dataPoints?pageSize=5`, {
           headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
         }).then((r) => (r.ok ? r.json() : null)).catch(() => null),
-        fetch(`${BASE_URL}/users/me/dataTypes/oxygen-saturation/dataPoints?pageSize=500`, {
+        fetch(`${BASE_URL}/users/me/dataTypes/oxygen-saturation/dataPoints?pageSize=20`, {
           headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
         }).then((r) => (r.ok ? r.json() : null)).catch(() => null),
         fetch(`${BASE_URL}/users/me/dataTypes/weight/dataPoints?pageSize=1`, {
