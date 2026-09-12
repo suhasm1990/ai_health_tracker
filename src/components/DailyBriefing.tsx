@@ -30,13 +30,14 @@ export const DailyBriefing: React.FC<DailyBriefingProps> = ({
   const [isRegenerating, setIsRegenerating] = useState(false);
   const [regenCount, setRegenCount] = useState(0);
 
-  // Time of day greeting
+    // Time of day greeting (Evening extended to 10 PM to accommodate night walkers)
   const greeting = useMemo(() => {
     const hour = new Date().getHours();
     const name = userName ? userName.split(" ")[0] : "there";
-    if (hour < 12) return { text: `Good morning, ${name}`, icon: Coffee, period: "morning" };
-    if (hour < 17) return { text: `Good afternoon, ${name}`, icon: Sun, period: "afternoon" };
-    return { text: `Good evening, ${name}`, icon: Sunset, period: "evening" };
+    if (hour < 12) return { text: `Good morning, ${name}`, icon: Coffee, period: "morning", label: "Morning Edition" };
+    if (hour < 17) return { text: `Good afternoon, ${name}`, icon: Sun, period: "afternoon", label: "Afternoon Edition" };
+    if (hour < 22) return { text: `Good evening, ${name}`, icon: Sunset, period: "evening", label: "Evening Edition" };
+    return { text: `Good evening, ${name}`, icon: Moon, period: "night", label: "Late Night Edition" };
   }, [userName]);
 
   // Analytical synthesis of user metrics
@@ -44,6 +45,7 @@ export const DailyBriefing: React.FC<DailyBriefingProps> = ({
     const steps = today.steps || 0;
     const stepsGoal = today.stepsGoal || 10000;
     const stepPct = Math.round((steps / stepsGoal) * 100);
+    const period = greeting.period;
 
     // Sleep analysis
     const sleepMins = today.sleepDurationMinutes || 0;
@@ -87,16 +89,38 @@ export const DailyBriefing: React.FC<DailyBriefingProps> = ({
       sleepText = "No overnight sleep session recorded on your synced wearable yet. If you took a power nap or synced recently, metrics will refresh automatically.";
     }
 
-    // Actionable coaching recommendation based on step progress & time of day
+    // Actionable coaching recommendation dynamically tailored to step progress AND current time of day
     let actionTip = "";
     if (stepPct >= 100) {
-      actionTip = `Outstanding work! You've already smashed your daily movement goal with **${steps.toLocaleString()} steps** (${stepPct}%). Focus on hydration, post-workout stretching, and an easy evening wind-down.`;
+      if (period === "evening" || period === "night") {
+        actionTip = `Outstanding work! You've crushed your daily movement goal with **${steps.toLocaleString()} steps** (${stepPct}%). Transition into gentle stretching and an easy evening wind-down.`;
+      } else {
+        actionTip = `Outstanding work! You've already reached your daily movement goal with **${steps.toLocaleString()} steps** (${stepPct}%). Stay hydrated and maintain your active momentum through the day.`;
+      }
     } else if (stepPct >= 50) {
       const remaining = stepsGoal - steps;
-      actionTip = `You're over halfway to your goal with **${steps.toLocaleString()} steps** (${stepPct}%). A brisk 25-minute afternoon walk will comfortably close the remaining **${remaining.toLocaleString()} steps**.`;
+      if (period === "morning") {
+        actionTip = `Strong start! You're already over halfway to your goal with **${steps.toLocaleString()} steps** (${stepPct}%). Steady movement through your day will easily close the remaining **${remaining.toLocaleString()} steps**.`;
+      } else if (period === "afternoon") {
+        actionTip = `You're over halfway to your goal with **${steps.toLocaleString()} steps** (${stepPct}%). A brisk 25-minute afternoon walk will comfortably close the remaining **${remaining.toLocaleString()} steps**.`;
+      } else if (period === "evening") {
+        actionTip = `You're over halfway to your goal with **${steps.toLocaleString()} steps** (${stepPct}%). A calm 25-minute evening stroll can comfortably bank another **${Math.min(remaining, 2500).toLocaleString()} steps** before your bedtime wind-down.`;
+      } else {
+        // night (after 10 PM)
+        actionTip = `You've logged **${steps.toLocaleString()} steps** (${stepPct}%) today. If you're heading out for a 10 PM walk, keep the pace relaxed and conversational so your heart rate settles nicely before sleep at 11.`;
+      }
     } else {
       const remaining = stepsGoal - steps;
-      actionTip = `You're currently at **${steps.toLocaleString()} steps** (${stepPct}% of goal). Taking short 5-minute movement breaks every hour this afternoon will easily bank **${Math.min(remaining, 3000).toLocaleString()} more steps** before dinner.`;
+      if (period === "morning") {
+        actionTip = `You're currently at **${steps.toLocaleString()} steps** (${stepPct}% of goal). Plenty of day ahead—taking short 5-minute movement breaks each hour will steadily build toward your target.`;
+      } else if (period === "afternoon") {
+        actionTip = `You're currently at **${steps.toLocaleString()} steps** (${stepPct}% of goal). Taking an active 20-minute walk this afternoon will bank **${Math.min(remaining, 3000).toLocaleString()} more steps** before dinner.`;
+      } else if (period === "evening") {
+        actionTip = `You've logged **${steps.toLocaleString()} steps** (${stepPct}% of goal) today. An easy 20-minute evening walk is a great way to aid digestion, reduce stress, and add a healthy boost to today's step count.`;
+      } else {
+        // night (after 10 PM)
+        actionTip = `You've logged **${steps.toLocaleString()} steps** today. If you take a late-night stroll, keep it light and easy to allow your core body temperature to cool down before bedtime.`;
+      }
     }
 
     // Curated quick-dive prompts tailored to current health status
@@ -130,7 +154,7 @@ export const DailyBriefing: React.FC<DailyBriefingProps> = ({
       actionTip,
       dynamicPrompts,
     };
-  }, [today, history7Days, regenCount]);
+  }, [today, history7Days, greeting.period, regenCount]);
 
   const handleRegenerate = () => {
     setIsRegenerating(true);
@@ -168,7 +192,7 @@ export const DailyBriefing: React.FC<DailyBriefingProps> = ({
               <GreetingIcon className="w-3.5 h-3.5 text-amber-400" />
               <span>{greeting.text}</span>
               <span className="text-slate-600">•</span>
-              <span className="text-slate-400 capitalize">{greeting.period} Briefing</span>
+              <span className="text-slate-400">{greeting.label}</span>
             </div>
           </div>
         </div>
