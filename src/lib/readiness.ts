@@ -61,11 +61,9 @@ export function calculateIndustryStandardReadiness(
 
   const todayHrv = today.heartRateVariability;
   
-  // Benchmark baseline: rolling 7-day average, or reasonable adult default (26 ms)
+  // Benchmark baseline: rolling 7-day average, or population adult reference (26 ms)
   const baselineHrvMs = validHrvHistory.length
     ? Math.round(validHrvHistory.reduce((sum, v) => sum + v, 0) / validHrvHistory.length)
-    : todayHrv && todayHrv >= 30
-    ? Math.round(todayHrv * 0.82) // If today is a peak reading, benchmark against typical range
     : 26;
 
   // 2. Calculate 7-day Resting HR Baseline
@@ -79,7 +77,8 @@ export function calculateIndustryStandardReadiness(
     : todayRhr || 70;
 
   // --- PILLAR 1: AUTONOMIC TONE / HRV (0 - 40 PTS) ---
-  let autonomicScore = 34; // Default healthy baseline
+  // Grounded in Plews et al. & Buchheit (2014) sports science standards (RMSSD vs rolling baseline ratio)
+  let autonomicScore = 32; // Default healthy baseline
   let autonomicStatus = "Balanced";
   let autonomicDesc = "Autonomic tone is aligned with physiological baseline.";
   let hrvRatio = 1.0;
@@ -87,32 +86,32 @@ export function calculateIndustryStandardReadiness(
 
   if (todayHrv && baselineHrvMs > 0) {
     hrvRatio = Number((todayHrv / baselineHrvMs).toFixed(2));
-    if (hrvRatio >= 1.15 || todayHrv >= 32) {
-      // Peak Recovery (>15% above baseline or solid 32+ ms)
+    if (hrvRatio >= 1.15) {
+      // Parasympathetic Peak: >15% above personal rolling baseline
       autonomicScore = 40;
       autonomicStatus = "Peak Recovery";
       isHrvPeak = true;
-      autonomicDesc = `HRV climbed to ${todayHrv} ms, running above your typical baseline and signaling superior parasympathetic autonomic recovery.`;
+      autonomicDesc = `HRV is ${todayHrv} ms (+${Math.round((hrvRatio - 1) * 100)}% above rolling baseline), signaling parasympathetic supercompensation.`;
     } else if (hrvRatio >= 1.05) {
-      autonomicScore = 38;
+      autonomicScore = 36;
       autonomicStatus = "Optimal";
-      autonomicDesc = `HRV is ${todayHrv} ms, showing optimal vagal modulation.`;
+      autonomicDesc = `HRV is ${todayHrv} ms (+${Math.round((hrvRatio - 1) * 100)}% above baseline), reflecting optimal vagal modulation.`;
     } else if (hrvRatio >= 0.95) {
-      autonomicScore = 35;
+      autonomicScore = 31;
       autonomicStatus = "Balanced";
-      autonomicDesc = `HRV of ${todayHrv} ms matches your personal baseline.`;
+      autonomicDesc = `HRV of ${todayHrv} ms matches your personal physiological baseline.`;
     } else if (hrvRatio >= 0.85) {
-      autonomicScore = 28;
+      autonomicScore = 24;
       autonomicStatus = "Mild Suppression";
-      autonomicDesc = `HRV is ${todayHrv} ms, slightly suppressed vs baseline.`;
+      autonomicDesc = `HRV is ${todayHrv} ms (${Math.round((1 - hrvRatio) * 100)}% below baseline), showing mild autonomic fatigue.`;
     } else if (hrvRatio >= 0.70) {
-      autonomicScore = 20;
+      autonomicScore = 18;
       autonomicStatus = "Suppressed";
-      autonomicDesc = `HRV is ${todayHrv} ms, reflecting delayed autonomic recovery.`;
+      autonomicDesc = `HRV is ${todayHrv} ms (${Math.round((1 - hrvRatio) * 100)}% below baseline), reflecting delayed autonomic recovery.`;
     } else {
-      autonomicScore = 12;
+      autonomicScore = 10;
       autonomicStatus = "Elevated Strain";
-      autonomicDesc = `HRV is ${todayHrv} ms, indicating heavy systemic fatigue.`;
+      autonomicDesc = `HRV is ${todayHrv} ms, indicating heavy sympathetic stress.`;
     }
   } else if (todayRhr && baselineRestingHr) {
     // Graceful fallback when HRV sensor data is unavailable: infer from RHR delta
