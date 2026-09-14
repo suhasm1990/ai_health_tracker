@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useMemo } from "react";
 import {
   Sparkles,
   Zap,
@@ -8,8 +8,11 @@ import {
   Footprints,
   Flame,
   TrendingUp,
+  Activity,
+  Heart,
 } from "lucide-react";
 import { DailyMetricSummary } from "@/lib/types";
+import { calculateIndustryStandardReadiness } from "@/lib/readiness";
 
 interface ReadinessScoreProps {
   today: DailyMetricSummary;
@@ -30,75 +33,14 @@ export const ReadinessScore: React.FC<ReadinessScoreProps> = ({
     return () => clearTimeout(timer);
   }, []);
 
-  // 1. Calculate 7-day baseline resting HR
-  const validHRHistory = history7Days.filter(
-    (h) => h.restingHeartRate && h.restingHeartRate > 0
-  );
-  const avg7DayRestingHR = validHRHistory.length
-    ? validHRHistory.reduce((sum, h) => sum + (h.restingHeartRate || 0), 0) /
-      validHRHistory.length
-    : today.restingHeartRate || 65;
+  // Industry-Standard Clinical Readiness Formulation (0 - 100)
+  const breakdown = useMemo(() => {
+    return calculateIndustryStandardReadiness(today, history7Days);
+  }, [today, history7Days]);
 
-  // 2. Clinical Readiness Score Formulation (0 - 100)
-  // Component A: Sleep & Restoration (0 - 50 pts) - grounded in NSF adult clinical recovery standards
-  const sleepScore = today.sleepScore || (today.sleepDurationMinutes ? Math.min(100, Math.round((today.sleepDurationMinutes / 480) * 85)) : 75);
-  const sleepFactor = Math.round((sleepScore / 100) * 50);
-
-  // Component B: Cardiac Recovery / Autonomic Tone (0 - 40 pts)
-  // Compares resting HR against 7-day personal baseline (parasympathetic tone)
-  let cardiacFactor = 32; // Default healthy baseline
-  if (today.restingHeartRate && avg7DayRestingHR) {
-    const diff = avg7DayRestingHR - today.restingHeartRate;
-    // Lower resting HR vs baseline = superior autonomic tone and recovery
-    if (diff >= 3) cardiacFactor = 40;
-    else if (diff >= 0) cardiacFactor = 37;
-    else if (diff >= -3) cardiacFactor = 30;
-    else cardiacFactor = 22;
-  }
-
-  // Component C: Vitality & Activity Strain Balance (0 - 10 pts)
-  // Starts with a baseline of 7 pts upon waking (uncompromised), accumulating with daily movement
-  const stepRatio = Math.min(1, (today.steps || 0) / (today.stepsGoal || 10000));
-  const activityFactor = Math.round(7 + stepRatio * 3);
-
-  const readinessScore = Math.min(100, Math.max(0, sleepFactor + cardiacFactor + activityFactor));
-
-  // Determine recovery category & actionable guidance
-  const getReadinessTier = (score: number) => {
-    if (score >= 80) {
-      return {
-        label: "Primed for Performance",
-        subtitle: "High Readiness",
-        theme: "emerald",
-        badgeBg: "bg-emerald-500/10 dark:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border-emerald-500/30",
-        glow: "from-emerald-500/20 via-teal-500/10 to-transparent",
-        ringColor: "#10B981",
-        guidance: "Your cardiovascular recovery and restorative sleep are optimal today. Excellent day for a challenging workout, personal record attempt, or intensive focus.",
-      };
-    }
-    if (score >= 65) {
-      return {
-        label: "Steady Recovery",
-        subtitle: "Moderate Readiness",
-        theme: "teal",
-        badgeBg: "bg-teal-500/10 dark:bg-teal-500/20 text-teal-600 dark:text-teal-400 border-teal-500/30",
-        glow: "from-teal-500/20 via-cyan-500/10 to-transparent",
-        ringColor: "#06B6D4",
-        guidance: "Your recovery is on track with steady baseline metrics. A great day for moderate cardio, sustained work, or routine functional strength training.",
-      };
-    }
-    return {
-      label: "Rest & Active Recovery",
-      subtitle: "Recharge Needed",
-      theme: "amber",
-      badgeBg: "bg-amber-500/10 dark:bg-amber-500/20 text-amber-600 dark:text-amber-400 border-amber-500/30",
-      glow: "from-amber-500/20 via-orange-500/10 to-transparent",
-      ringColor: "#F59E0B",
-      guidance: "Your physiological strain or sleep deficit is elevated today. Prioritize hydration, restorative mobility, light walks, and going to bed 30 minutes earlier.",
-    };
-  };
-
-  const tier = getReadinessTier(readinessScore);
+  const readinessScore = breakdown.score;
+  const tier = breakdown.tier;
+  const factors = breakdown.factors;
 
   // Concentric Rings Configuration (Move, Energy, Recovery)
   // Ring 1 (Outer): Move / Steps
@@ -137,7 +79,7 @@ export const ReadinessScore: React.FC<ReadinessScoreProps> = ({
         {/* Left: Score & Guidance Section */}
         <div className="flex-1 space-y-4 w-full">
           {/* Header Row */}
-          <div className="flex items-center justify-between">
+          <div className="flex flex-wrap items-center justify-between gap-2">
             <div className="flex items-center space-x-2.5">
               <div className="p-2 rounded-xl bg-gradient-to-tr from-emerald-500 to-teal-400 text-white shadow-md shadow-emerald-500/20">
                 <Sparkles className="w-5 h-5" />
@@ -147,17 +89,25 @@ export const ReadinessScore: React.FC<ReadinessScoreProps> = ({
                   Daily Readiness & Recovery
                 </h2>
                 <p className="text-xs text-slate-500 dark:text-slate-400">
-                  Multivariate physiological synthesis for today
+                  Multivariate physiological recovery synthesis
                 </p>
               </div>
             </div>
 
-            <span
-              className={`text-xs font-semibold px-3 py-1 rounded-full border shadow-xs ${tier.badgeBg} flex items-center space-x-1.5`}
-            >
-              <span className="w-2 h-2 rounded-full bg-current animate-pulse inline-block" />
-              <span>{tier.label}</span>
-            </span>
+            <div className="flex items-center space-x-2">
+              {factors.autonomic.isPeak && (
+                <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-purple-500/10 dark:bg-purple-500/20 text-purple-600 dark:text-purple-400 border border-purple-500/30 flex items-center space-x-1 shadow-xs animate-pulse">
+                  <Activity className="w-3.5 h-3.5" />
+                  <span>HRV Peak ({factors.autonomic.hrvMs} ms)</span>
+                </span>
+              )}
+              <span
+                className={`text-xs font-semibold px-3 py-1 rounded-full border shadow-xs ${tier.badgeBg} flex items-center space-x-1.5`}
+              >
+                <span className="w-2 h-2 rounded-full bg-current animate-pulse inline-block" />
+                <span>{tier.label}</span>
+              </span>
+            </div>
           </div>
 
           {/* Actionable Guidance Card */}
@@ -168,68 +118,99 @@ export const ReadinessScore: React.FC<ReadinessScoreProps> = ({
               </div>
               <div className="flex-1 text-xs sm:text-sm text-slate-700 dark:text-slate-300 leading-relaxed">
                 <span className="font-semibold text-slate-900 dark:text-white block sm:inline mr-1">
-                  Coach Recommendation:
+                  Clinical Recommendation:
                 </span>
                 {tier.guidance}
               </div>
             </div>
           </div>
 
-          {/* Breakdown Factor Bars */}
-          <div className="grid grid-cols-3 gap-2.5 pt-1 text-xs">
-            {/* Factor 1: Sleep */}
+          {/* 4-Pillar Industry Standard Breakdown Bars */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 pt-1 text-xs">
+            {/* Factor 1: Autonomic HRV */}
             <div className="bg-slate-50/50 dark:bg-slate-800/30 rounded-xl p-2.5 border border-slate-200/40 dark:border-slate-800">
-              <div className="flex items-center justify-between text-slate-500 dark:text-slate-400 mb-1.5">
+              <div className="flex items-center justify-between text-slate-500 dark:text-slate-400 mb-1">
                 <span className="flex items-center space-x-1 text-[11px] font-medium">
-                  <Moon className="w-3.5 h-3.5 text-indigo-500" />
-                  <span>Sleep Quality</span>
+                  <Activity className="w-3.5 h-3.5 text-purple-500" />
+                  <span>Autonomic HRV</span>
                 </span>
                 <span className="font-semibold text-slate-800 dark:text-slate-200">
-                  {sleepFactor}/50
+                  {factors.autonomic.score}/40
                 </span>
+              </div>
+              <div className="text-[10px] text-purple-600 dark:text-purple-400 font-medium mb-1.5 truncate">
+                {factors.autonomic.valueFormatted} • {factors.autonomic.status}
               </div>
               <div className="w-full h-1.5 bg-slate-200/70 dark:bg-slate-700 rounded-full overflow-hidden">
                 <div
-                  className="h-full bg-gradient-to-r from-indigo-500 to-cyan-400 rounded-full transition-all duration-1000 ease-out"
-                  style={{ width: `${(sleepFactor / 50) * 100}%` }}
+                  className="h-full bg-gradient-to-r from-purple-500 to-indigo-400 rounded-full transition-all duration-1000 ease-out"
+                  style={{ width: `${(factors.autonomic.score / 40) * 100}%` }}
                 />
               </div>
             </div>
 
-            {/* Factor 2: Cardiac */}
+            {/* Factor 2: Sleep Restoration */}
             <div className="bg-slate-50/50 dark:bg-slate-800/30 rounded-xl p-2.5 border border-slate-200/40 dark:border-slate-800">
-              <div className="flex items-center justify-between text-slate-500 dark:text-slate-400 mb-1.5">
+              <div className="flex items-center justify-between text-slate-500 dark:text-slate-400 mb-1">
                 <span className="flex items-center space-x-1 text-[11px] font-medium">
-                  <TrendingUp className="w-3.5 h-3.5 text-rose-500" />
+                  <Moon className="w-3.5 h-3.5 text-cyan-500" />
+                  <span>Sleep Restore</span>
+                </span>
+                <span className="font-semibold text-slate-800 dark:text-slate-200">
+                  {factors.sleep.score}/35
+                </span>
+              </div>
+              <div className="text-[10px] text-cyan-600 dark:text-cyan-400 font-medium mb-1.5 truncate">
+                Score {factors.sleep.valueFormatted} • {factors.sleep.status}
+              </div>
+              <div className="w-full h-1.5 bg-slate-200/70 dark:bg-slate-700 rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-gradient-to-r from-cyan-500 to-blue-400 rounded-full transition-all duration-1000 ease-out"
+                  style={{ width: `${(factors.sleep.score / 35) * 100}%` }}
+                />
+              </div>
+            </div>
+
+            {/* Factor 3: Cardiac Rest */}
+            <div className="bg-slate-50/50 dark:bg-slate-800/30 rounded-xl p-2.5 border border-slate-200/40 dark:border-slate-800">
+              <div className="flex items-center justify-between text-slate-500 dark:text-slate-400 mb-1">
+                <span className="flex items-center space-x-1 text-[11px] font-medium">
+                  <Heart className="w-3.5 h-3.5 text-rose-500" />
                   <span>Cardiac Rest</span>
                 </span>
                 <span className="font-semibold text-slate-800 dark:text-slate-200">
-                  {cardiacFactor}/40
+                  {factors.cardiac.score}/15
                 </span>
+              </div>
+              <div className="text-[10px] text-rose-600 dark:text-rose-400 font-medium mb-1.5 truncate">
+                {factors.cardiac.valueFormatted} • {factors.cardiac.status}
               </div>
               <div className="w-full h-1.5 bg-slate-200/70 dark:bg-slate-700 rounded-full overflow-hidden">
                 <div
                   className="h-full bg-gradient-to-r from-rose-500 to-amber-400 rounded-full transition-all duration-1000 ease-out"
-                  style={{ width: `${(cardiacFactor / 40) * 100}%` }}
+                  style={{ width: `${(factors.cardiac.score / 15) * 100}%` }}
                 />
               </div>
             </div>
 
-            {/* Factor 3: Vitality & Strain */}
+            {/* Factor 4: Vitality & Strain */}
             <div className="bg-slate-50/50 dark:bg-slate-800/30 rounded-xl p-2.5 border border-slate-200/40 dark:border-slate-800">
-              <div className="flex items-center justify-between text-slate-500 dark:text-slate-400 mb-1.5">
+              <div className="flex items-center justify-between text-slate-500 dark:text-slate-400 mb-1">
                 <span className="flex items-center space-x-1 text-[11px] font-medium">
                   <Flame className="w-3.5 h-3.5 text-amber-500" />
                   <span>Vitality & Strain</span>
                 </span>
                 <span className="font-semibold text-slate-800 dark:text-slate-200">
-                  {activityFactor}/10
+                  {factors.vitality.score}/10
                 </span>
+              </div>
+              <div className="text-[10px] text-amber-600 dark:text-amber-400 font-medium mb-1.5 truncate">
+                {factors.vitality.status} • {factors.vitality.valueFormatted}
               </div>
               <div className="w-full h-1.5 bg-slate-200/70 dark:bg-slate-700 rounded-full overflow-hidden">
                 <div
                   className="h-full bg-gradient-to-r from-amber-400 to-emerald-400 rounded-full transition-all duration-1000 ease-out"
-                  style={{ width: `${(activityFactor / 10) * 100}%` }}
+                  style={{ width: `${(factors.vitality.score / 10) * 100}%` }}
                 />
               </div>
             </div>

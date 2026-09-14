@@ -1,6 +1,7 @@
 import { ToolDefinition, ToolExecutionSummary } from "./types";
 import { getAllHealthMetrics, getPairedDevices } from "../googleHealthApi";
 import { DailyMetricSummary, PairedDevice } from "../types";
+import { calculateIndustryStandardReadiness } from "../readiness";
 
 export const HEALTH_TOOL_DEFINITIONS: ToolDefinition[] = [
   {
@@ -86,6 +87,8 @@ export async function executeHealthTool(name: string, args: Record<string, any> 
       const hours = Math.floor(t.sleepDurationMinutes / 60);
       const mins = t.sleepDurationMinutes % 60;
 
+      const readiness = calculateIndustryStandardReadiness(t, payload.history7Days);
+
       const summaryData = {
         date: t.date,
         steps: t.steps,
@@ -110,6 +113,18 @@ export async function executeHealthTool(name: string, args: Record<string, any> 
           durationMinutes: t.sleepDurationMinutes,
           score: t.sleepScore,
         },
+        readiness: {
+          score: readiness.score,
+          tier: readiness.tier.label,
+          subtitle: readiness.tier.subtitle,
+          clinicalGuidance: readiness.tier.guidance,
+          factors: {
+            autonomicHrv: `${readiness.factors.autonomic.score}/40 (${readiness.factors.autonomic.valueFormatted} - ${readiness.factors.autonomic.status})`,
+            sleepRestoration: `${readiness.factors.sleep.score}/35 (${readiness.factors.sleep.valueFormatted} - ${readiness.factors.sleep.status})`,
+            cardiacRest: `${readiness.factors.cardiac.score}/15 (${readiness.factors.cardiac.valueFormatted} - ${readiness.factors.cardiac.status})`,
+            vitalityStrain: `${readiness.factors.vitality.score}/10 (${readiness.factors.vitality.valueFormatted} - ${readiness.factors.vitality.status})`,
+          },
+        },
       };
 
       return {
@@ -118,7 +133,7 @@ export async function executeHealthTool(name: string, args: Record<string, any> 
           name,
           label: "Queried Today's Health Summary",
           args,
-          resultSummary: `${t.steps.toLocaleString()} steps, ${t.caloriesBurned} kcal, ${t.restingHeartRate || 53} bpm resting HR, ${hours}h ${mins}m sleep (score ${t.sleepScore})`,
+          resultSummary: `${readiness.score}/100 Readiness (${readiness.tier.label}), ${t.steps.toLocaleString()} steps, ${t.restingHeartRate || 53} bpm resting HR, ${hours}h ${mins}m sleep (score ${t.sleepScore})`,
         },
       };
     }

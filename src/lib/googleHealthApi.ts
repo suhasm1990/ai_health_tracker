@@ -446,6 +446,7 @@ export async function getAllHealthMetrics(
         floorsRes,
         sleepData,
         hrvData,
+        dailyHrvData,
         spo2Data,
         weightData,
         heightData,
@@ -461,7 +462,10 @@ export async function getAllHealthMetrics(
         fetch(`${BASE_URL}/users/me/dataTypes/sleep/dataPoints?pageSize=20`, {
           headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
         }).then((r) => (r.ok ? r.json() : null)).catch(() => null),
-        fetch(`${BASE_URL}/users/me/dataTypes/heart-rate-variability/dataPoints?pageSize=5`, {
+        fetch(`${BASE_URL}/users/me/dataTypes/heart-rate-variability/dataPoints?pageSize=20`, {
+          headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
+        }).then((r) => (r.ok ? r.json() : null)).catch(() => null),
+        fetch(`${BASE_URL}/users/me/dataTypes/daily-heart-rate-variability/dataPoints?pageSize=10`, {
           headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
         }).then((r) => (r.ok ? r.json() : null)).catch(() => null),
         fetch(`${BASE_URL}/users/me/dataTypes/oxygen-saturation/dataPoints?pageSize=20`, {
@@ -553,8 +557,27 @@ export async function getAllHealthMetrics(
       }
 
       let heartRateVariability: number | null = null;
-      if (hrvData?.dataPoints?.length) {
-        const ms = hrvData.dataPoints[0]?.heartRateVariability?.rootMeanSquareOfSuccessiveDifferencesMilliseconds;
+      // 1. Check daily-heart-rate-variability summaries first
+      if (dailyHrvData?.dataPoints?.length) {
+        const todayDaily = dailyHrvData.dataPoints.find((p: any) => {
+          const cd = p.civilStartTime?.date || p.civilEndTime?.date;
+          return cd?.year === targetYear && cd?.month === targetMonth && cd?.day === targetDay;
+        }) || dailyHrvData.dataPoints[0];
+
+        const dHrv = todayDaily?.dailyHeartRateVariability;
+        const val = dHrv?.averageHeartRateVariabilityMilliseconds || 
+                    dHrv?.deepSleepRootMeanSquareOfSuccessiveDifferencesMilliseconds;
+        if (val) heartRateVariability = Math.round(Number(val));
+      }
+
+      // 2. Fallback to raw sample points (sorted by latest sample time)
+      if (!heartRateVariability && hrvData?.dataPoints?.length) {
+        const sorted = [...hrvData.dataPoints].sort((a: any, b: any) => {
+          const tA = new Date(a.sampleTime || a.interval?.endTime || 0).getTime();
+          const tB = new Date(b.sampleTime || b.interval?.endTime || 0).getTime();
+          return tB - tA;
+        });
+        const ms = sorted[0]?.heartRateVariability?.rootMeanSquareOfSuccessiveDifferencesMilliseconds;
         if (ms) heartRateVariability = Math.round(Number(ms));
       }
 
@@ -734,6 +757,17 @@ export async function getAllHealthMetrics(
             stages: [],
           };
 
+          let dayHrv: number | null = null;
+          if (dailyHrvData?.dataPoints?.length) {
+            const hrvPt = dailyHrvData.dataPoints.find((p: any) => {
+              const cd = p.civilStartTime?.date || p.civilEndTime?.date;
+              return cd ? `${cd.month}/${cd.day}` === label : false;
+            });
+            const v = hrvPt?.dailyHeartRateVariability?.averageHeartRateVariabilityMilliseconds ||
+                      hrvPt?.dailyHeartRateVariability?.deepSleepRootMeanSquareOfSuccessiveDifferencesMilliseconds;
+            if (v) dayHrv = Math.round(Number(v));
+          }
+
           return {
             date: label,
             steps: daySteps,
@@ -751,7 +785,7 @@ export async function getAllHealthMetrics(
             sleepScore: sleepInfo.sleepScore,
             sleepEfficiency: sleepInfo.sleepEfficiency,
             sleepStages: sleepInfo.stages,
-            heartRateVariability: null,
+            heartRateVariability: dayHrv,
             oxygenSaturation: null,
             respiratoryRate: null,
           };
