@@ -71,7 +71,7 @@ export async function getPairedDevices(forceRefresh = false): Promise<PairedDevi
 
     // 2. Discover devices directly from live telemetry data points (Steps, Distance, Exercise)
     try {
-      const [stepsRes, distRes, exerciseRes] = await Promise.all([
+      const [stepsRes, distRes, exerciseRes, hrRes] = await Promise.all([
         fetch(`${BASE_URL}/users/me/dataTypes/steps/dataPoints?pageSize=10`, {
           headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
         }),
@@ -79,6 +79,9 @@ export async function getPairedDevices(forceRefresh = false): Promise<PairedDevi
           headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
         }),
         fetch(`${BASE_URL}/users/me/dataTypes/exercise/dataPoints?pageSize=5`, {
+          headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
+        }),
+        fetch(`${BASE_URL}/users/me/dataTypes/heart-rate/dataPoints?pageSize=10`, {
           headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
         }),
       ]);
@@ -96,7 +99,8 @@ export async function getPairedDevices(forceRefresh = false): Promise<PairedDevi
           let name = dev?.displayName;
           if (!name) {
             if (dev?.manufacturer === "Apple Inc." || platform === "HEALTH_KIT" || app.includes("apple.health")) {
-              name = "Apple Health (iPhone)";
+              const isWatch = dev?.formFactor === "WATCH" || dev?.model?.toLowerCase().includes("watch") || dev?.displayName?.toLowerCase().includes("watch");
+              name = isWatch ? (dev?.displayName || "Apple Watch") : "Apple Health (iPhone)";
             } else if (dev?.manufacturer && dev?.formFactor) {
               name = `${dev.manufacturer} ${dev.formFactor === "PHONE" ? "Phone" : dev.formFactor}`;
             } else if (platform && platform !== "FITBIT") {
@@ -109,8 +113,8 @@ export async function getPairedDevices(forceRefresh = false): Promise<PairedDevi
           if (name && !discoveredDevices.has(name)) {
             const isApple = name.toLowerCase().includes("apple") || platform === "HEALTH_KIT";
             const isScale = name.toLowerCase().includes("scale") || name.toLowerCase().includes("aria");
-            const isWatch = name.toLowerCase().includes("watch");
-            const isPhone = dev?.formFactor === "PHONE" || isApple || name.toLowerCase().includes("phone");
+            const isWatch = name.toLowerCase().includes("watch") || dev?.formFactor === "WATCH";
+            const isPhone = dev?.formFactor === "PHONE" || (isApple && !isWatch) || name.toLowerCase().includes("phone");
 
             const iconType: PairedDevice["iconType"] = isScale ? "scale" : isWatch ? "watch" : isPhone ? "phone" : "band";
             const deviceType: PairedDevice["deviceType"] = isWatch ? "SMARTWATCH" : isScale ? "SCALE" : "FITNESS_TRACKER";
@@ -120,7 +124,7 @@ export async function getPairedDevices(forceRefresh = false): Promise<PairedDevi
               id: safeId,
               name: `users/me/devices/${safeId}`,
               displayName: name,
-              model: isApple ? "Apple iPhone via HealthKit" : dev?.model || name,
+              model: isWatch ? (dev?.model || "Apple Watch") : isApple ? "Apple iPhone via HealthKit" : dev?.model || name,
               deviceType,
               manufacturer: dev?.manufacturer || (isApple ? "Apple Inc." : "Health Connect"),
               hardwareVersion: isApple ? "iOS HealthKit" : "v1.0",
@@ -131,6 +135,7 @@ export async function getPairedDevices(forceRefresh = false): Promise<PairedDevi
                 pt.steps?.interval?.endTime ||
                 pt.distance?.interval?.endTime ||
                 pt.exercise?.interval?.endTime ||
+                pt.heartRate?.sampleTime ||
                 new Date().toISOString(),
               iconType,
             });
@@ -151,6 +156,11 @@ export async function getPairedDevices(forceRefresh = false): Promise<PairedDevi
       if (exerciseRes.ok) {
         const exerciseData = await exerciseRes.json();
         processPoints(exerciseData.dataPoints);
+      }
+
+      if (hrRes.ok) {
+        const hrData = await hrRes.json();
+        processPoints(hrData.dataPoints);
       }
 
       if (discoveredDevices.size > 0) {

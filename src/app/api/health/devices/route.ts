@@ -8,6 +8,7 @@ export async function GET(request: Request) {
     const url = new URL(request.url);
     const forceRefresh = url.searchParams.get("refresh") === "true";
     const devices = await getPairedDevices(forceRefresh);
+    console.log("[DEVICE DISCOVERY]", JSON.stringify(devices.map(d => ({ name: d.displayName, model: d.model, type: d.deviceType, lastSync: d.lastSyncTime }))));
     return NextResponse.json({ devices });
   } catch (err: any) {
     return NextResponse.json({ error: err.message || "Failed to fetch paired devices" }, { status: 500 });
