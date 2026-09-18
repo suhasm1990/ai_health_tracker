@@ -55,6 +55,8 @@ export interface DailyMetricSummary {
   sleepScore: number;
   sleepEfficiency?: number; // % (Clinical: Time Asleep / Time In Bed)
   sleepStages: SleepStageSegment[];
+  sleepStartTime?: string | null; // e.g. "11:14 PM"
+  sleepEndTime?: string | null;   // e.g. "07:22 AM"
   weightKg?: number | null;
   bodyFatPercent?: number | null;
   fatBurnMinutes?: number;

@@ -697,58 +697,82 @@ export async function getAllHealthMetrics(
       let sleepScore = 0;
       let sleepEfficiency = 0;
       let sleepStages: SleepStageSegment[] = [];
+      let sleepStartTime: string | null = null;
+      let sleepEndTime: string | null = null;
 
-      // Parse all sleep records by date label
-      const sleepMap: Record<string, { minutesAsleep: number; sleepScore: number; sleepEfficiency: number; stages: SleepStageSegment[] }> = {};
+      const formatSleepTime = (iso?: string): string | null => {
+        if (!iso) return null;
+        try {
+          return new Date(iso).toLocaleTimeString("en-US", {
+            hour: "numeric",
+            minute: "2-digit",
+            hour12: true,
+            timeZone: clientTz || undefined,
+          });
+        } catch {
+          return null;
+        }
+      };
+
+      // Parse sleep records by date
+      const sleepMap: Record<
+        string,
+        {
+          minutesAsleep: number;
+          sleepScore: number;
+          sleepEfficiency: number;
+          stages: SleepStageSegment[];
+          startTime: string | null;
+          endTime: string | null;
+        }
+      > = {};
+
       if (sleepData?.dataPoints?.length) {
         for (const pt of sleepData.dataPoints) {
-          const endIso = pt.sleep?.interval?.endTime;
-          const offsetSec = parseInt(pt.sleep?.interval?.endUtcOffset || "-25200s", 10);
-          const endDate = new Date(new Date(endIso).getTime() + offsetSec * 1000);
+          const startIso = pt.interval?.startTime || pt.sleep?.interval?.startTime;
+          const endIso = pt.interval?.endTime || pt.sleep?.interval?.endTime;
+          const offsetSec = parseInt(pt.interval?.endUtcOffset || pt.sleep?.interval?.endUtcOffset || "-25200s", 10);
+          const endDate = endIso ? new Date(new Date(endIso).getTime() + offsetSec * 1000) : new Date();
           const dateKey = `${endDate.getUTCMonth() + 1}/${endDate.getUTCDate()}`;
-          const summary = pt.sleep?.summary;
+          const summary = pt.sleep?.summary || pt.summary;
           const minutesAsleep = Number(summary?.minutesAsleep || 0);
+
           const rawStages = summary?.stagesSummary || [];
           const totalStageMins = rawStages.reduce((acc: number, s: any) => acc + Number(s.minutes || 0), 0) || 1;
           const stages: SleepStageSegment[] = rawStages.map((s: any) => {
             const mins = Number(s.minutes || 0);
             const pct = Math.round((mins / totalStageMins) * 100);
-            let name: "Deep" | "Light" | "REM" | "Awake" = "Light";
-            let color = "#60A5FA";
-            if (s.type === "DEEP") { name = "Deep"; color = "#3B82F6"; }
-            else if (s.type === "REM") { name = "REM"; color = "#8B5CF6"; }
-            else if (s.type === "AWAKE") { name = "Awake"; color = "#F59E0B"; }
+            const name: "Deep" | "Light" | "REM" | "Awake" =
+              s.type === "DEEP" ? "Deep" : s.type === "REM" ? "REM" : s.type === "AWAKE" ? "Awake" : "Light";
+            const color = name === "Deep" ? "#3B82F6" : name === "REM" ? "#8B5CF6" : name === "Awake" ? "#F59E0B" : "#60A5FA";
             return { stage: name, durationMinutes: mins, percentage: pct, color };
           });
 
-          const sqi = calculateClinicalSleepQualityIndex(summary, pt.sleep?.shortAwakenings);
+          const sqi = calculateClinicalSleepQualityIndex(summary, pt.sleep?.shortAwakenings || pt.shortAwakenings);
+          const ptStartTime = formatSleepTime(startIso);
+          const ptEndTime = formatSleepTime(endIso);
 
           if (!sleepMap[dateKey] || minutesAsleep > sleepMap[dateKey].minutesAsleep) {
-            sleepMap[dateKey] = { minutesAsleep, sleepScore: sqi.score, sleepEfficiency: sqi.efficiencyPercent, stages };
+            sleepMap[dateKey] = {
+              minutesAsleep,
+              sleepScore: sqi.score,
+              sleepEfficiency: sqi.efficiencyPercent,
+              stages,
+              startTime: ptStartTime,
+              endTime: ptEndTime,
+            };
           }
         }
 
-        const todaySleepPoint = sleepData.dataPoints[0];
-        const todaySleep = todaySleepPoint?.sleep;
-        if (todaySleep) {
-          sleepDurationMinutes = Number(todaySleep.summary?.minutesAsleep || 0);
-          const stages = todaySleep.summary?.stagesSummary || [];
-          if (stages.length) {
-            const totalStageMins = stages.reduce((acc: number, s: any) => acc + Number(s.minutes || 0), 0) || 1;
-            sleepStages = stages.map((s: any) => {
-              const mins = Number(s.minutes || 0);
-              const pct = Math.round((mins / totalStageMins) * 100);
-              let name: "Deep" | "Light" | "REM" | "Awake" = "Light";
-              let color = "#60A5FA";
-              if (s.type === "DEEP") { name = "Deep"; color = "#3B82F6"; }
-              else if (s.type === "REM") { name = "REM"; color = "#8B5CF6"; }
-              else if (s.type === "AWAKE") { name = "Awake"; color = "#F59E0B"; }
-              return { stage: name, durationMinutes: mins, percentage: pct, color };
-            });
-          }
-          const todaySqi = calculateClinicalSleepQualityIndex(todaySleep.summary, todaySleep.shortAwakenings);
-          sleepScore = todaySqi.score;
-          sleepEfficiency = todaySqi.efficiencyPercent;
+        const todayKey = `${targetMonth}/${targetDay}`;
+        const activeSleep = sleepMap[todayKey] || Object.values(sleepMap)[0];
+        if (activeSleep) {
+          sleepDurationMinutes = activeSleep.minutesAsleep;
+          sleepScore = activeSleep.sleepScore;
+          sleepEfficiency = activeSleep.sleepEfficiency;
+          sleepStages = activeSleep.stages;
+          sleepStartTime = activeSleep.startTime;
+          sleepEndTime = activeSleep.endTime;
         }
       }
 
@@ -772,6 +796,8 @@ export async function getAllHealthMetrics(
         sleepScore,
         sleepEfficiency,
         sleepStages,
+        sleepStartTime,
+        sleepEndTime,
         weightKg,
         bodyFatPercent: null,
         fatBurnMinutes,
@@ -825,6 +851,8 @@ export async function getAllHealthMetrics(
             sleepScore: 0,
             sleepEfficiency: 0,
             stages: [],
+            startTime: null,
+            endTime: null,
           };
 
           let dayHrv: number | null = null;
@@ -855,6 +883,8 @@ export async function getAllHealthMetrics(
             sleepScore: sleepInfo.sleepScore,
             sleepEfficiency: sleepInfo.sleepEfficiency,
             sleepStages: sleepInfo.stages,
+            sleepStartTime: sleepInfo.startTime,
+            sleepEndTime: sleepInfo.endTime,
             heartRateVariability: dayHrv,
             oxygenSaturation: null,
             respiratoryRate: null,

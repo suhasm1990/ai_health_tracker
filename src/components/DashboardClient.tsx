@@ -475,6 +475,8 @@ export function DashboardClient({
           sleepEfficiency={metrics.today.sleepEfficiency}
           sleepStages={metrics.today.sleepStages}
           history={metrics.history7Days}
+          startTime={metrics.today.sleepStartTime}
+          endTime={metrics.today.sleepEndTime}
         />
       </main>
 

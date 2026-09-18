@@ -32,6 +32,8 @@ const EMPTY_TODAY_METRICS: DailyMetricSummary = {
   sleepScore: 0,
   sleepEfficiency: 0,
   sleepStages: [],
+  sleepStartTime: null,
+  sleepEndTime: null,
   weightKg: null,
   fatBurnMinutes: 0,
   cardioPeakMinutes: 0,

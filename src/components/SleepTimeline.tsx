@@ -30,6 +30,8 @@ interface SleepTimelineProps {
   sleepEfficiency?: number;
   sleepStages: SleepStageSegment[];
   history?: DailyMetricSummary[];
+  startTime?: string | null;
+  endTime?: string | null;
 }
 
 export const SleepTimeline: React.FC<SleepTimelineProps> = ({
@@ -38,6 +40,8 @@ export const SleepTimeline: React.FC<SleepTimelineProps> = ({
   sleepEfficiency,
   sleepStages,
   history = [],
+  startTime,
+  endTime,
 }) => {
   const [viewMode, setViewMode] = useState<"today" | "weekly">("today");
   const { resolvedTheme } = useTheme();
@@ -137,6 +141,8 @@ export const SleepTimeline: React.FC<SleepTimelineProps> = ({
       sleepScore: h.sleepScore,
       sleepEfficiency: h.sleepEfficiency,
       restingHeartRate: h.restingHeartRate,
+      startTime: h.sleepStartTime,
+      endTime: h.sleepEndTime,
     };
   });
 
@@ -162,6 +168,15 @@ export const SleepTimeline: React.FC<SleepTimelineProps> = ({
                 {h}h {m}m
               </span>
             </div>
+
+            {data.startTime && data.endTime && (
+              <div className="flex items-center justify-between text-slate-600 dark:text-slate-400">
+                <span>Schedule:</span>
+                <span className="font-semibold text-indigo-600 dark:text-indigo-400 font-mono text-[11px]">
+                  {data.startTime} – {data.endTime}
+                </span>
+              </div>
+            )}
 
             {data.sleepEfficiency ? (
               <div className="flex items-center justify-between text-slate-600 dark:text-slate-400">
@@ -228,7 +243,7 @@ export const SleepTimeline: React.FC<SleepTimelineProps> = ({
             </div>
             <div>
               <h3 className="text-base font-semibold text-slate-900 dark:text-white">Sleep & Recovery</h3>
-              <p className="text-xs text-slate-500 dark:text-slate-400">
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
                 {viewMode === "today"
                   ? "Sleep stages & architecture analysis"
                   : "7-Day sleep duration, score & restorative recovery"}
@@ -283,6 +298,7 @@ export const SleepTimeline: React.FC<SleepTimelineProps> = ({
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-3 mb-4 text-xs">
           {viewMode === "today" ? (
             <>
+              {/* Total Sleep Time with Start - End Time */}
               <div className="bg-slate-50 dark:bg-slate-800/40 rounded-xl p-3 border border-slate-200 dark:border-slate-800">
                 <div className="flex items-center space-x-1.5 text-slate-500 dark:text-slate-400 mb-1">
                   <Clock className="w-3.5 h-3.5 text-indigo-500 dark:text-indigo-400" />
@@ -291,8 +307,12 @@ export const SleepTimeline: React.FC<SleepTimelineProps> = ({
                 <div className="text-xl font-bold text-slate-900 dark:text-white">
                   {hours}h {minutes}m
                 </div>
+                <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 font-medium">
+                  {startTime && endTime ? `${startTime} – ${endTime}` : "Target: 8h 00m"}
+                </div>
               </div>
 
+              {/* Sleep Score */}
               <div className="bg-slate-50 dark:bg-slate-800/40 rounded-xl p-3 border border-slate-200 dark:border-slate-800">
                 <div className="flex items-center space-x-1.5 text-slate-500 dark:text-slate-400 mb-1">
                   <Sparkles className="w-3.5 h-3.5 text-indigo-500 dark:text-indigo-400" />
@@ -301,8 +321,12 @@ export const SleepTimeline: React.FC<SleepTimelineProps> = ({
                 <div className="text-xl font-bold text-indigo-600 dark:text-indigo-400">
                   {sleepScore} <span className="text-xs font-normal text-slate-400">/ 100</span>
                 </div>
+                <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                  {rating.label} Quality
+                </div>
               </div>
 
+              {/* Clinical Efficiency */}
               <div className="bg-slate-50 dark:bg-slate-800/40 rounded-xl p-3 border border-slate-200 dark:border-slate-800">
                 <div className="flex items-center space-x-1.5 text-slate-500 dark:text-slate-400 mb-1">
                   <ShieldCheck className="w-3.5 h-3.5 text-emerald-500 dark:text-emerald-400" />
@@ -311,15 +335,22 @@ export const SleepTimeline: React.FC<SleepTimelineProps> = ({
                 <div className="text-xl font-bold text-emerald-600 dark:text-emerald-400">
                   {sleepEfficiency ?? (validSleep[validSleep.length - 1]?.sleepEfficiency || 99)}%
                 </div>
+                <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                  Time asleep vs in bed
+                </div>
               </div>
 
+              {/* Deep + REM Restorative */}
               <div className="bg-slate-50 dark:bg-slate-800/40 rounded-xl p-3 border border-slate-200 dark:border-slate-800">
                 <div className="flex items-center space-x-1.5 text-slate-500 dark:text-slate-400 mb-1">
                   <Zap className="w-3.5 h-3.5 text-purple-500 dark:text-purple-400" />
                   <span>Deep + REM Restorative</span>
                 </div>
                 <div className="text-xl font-bold text-purple-600 dark:text-purple-400">
-                  {todayDeepRemPct}% ({Math.floor(todayDeepRemTotal / 60)}h {todayDeepRemTotal % 60}m)
+                  {todayDeepRemPct}%
+                </div>
+                <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                  {Math.floor(todayDeepRemTotal / 60)}h {todayDeepRemTotal % 60}m restorative
                 </div>
               </div>
             </>
@@ -333,6 +364,9 @@ export const SleepTimeline: React.FC<SleepTimelineProps> = ({
                 <div className="text-xl font-bold text-slate-900 dark:text-white">
                   {weeklyAvgHours}h {weeklyAvgMins}m
                 </div>
+                <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                  Across logged nights
+                </div>
               </div>
 
               <div className="bg-slate-50 dark:bg-slate-800/40 rounded-xl p-3 border border-slate-200 dark:border-slate-800">
@@ -342,6 +376,22 @@ export const SleepTimeline: React.FC<SleepTimelineProps> = ({
                 </div>
                 <div className="text-xl font-bold text-indigo-600 dark:text-indigo-400">
                   {weeklyAvgScore} <span className="text-xs font-normal text-slate-400">/ 100</span>
+                </div>
+                <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                  {weeklyRating.label} Quality
+                </div>
+              </div>
+
+              <div className="bg-slate-50 dark:bg-slate-800/40 rounded-xl p-3 border border-slate-200 dark:border-slate-800">
+                <div className="flex items-center space-x-1.5 text-slate-500 dark:text-slate-400 mb-1">
+                  <ShieldCheck className="w-3.5 h-3.5 text-emerald-500 dark:text-emerald-400" />
+                  <span>7-Day Clinical Efficiency</span>
+                </div>
+                <div className="text-xl font-bold text-emerald-600 dark:text-emerald-400">
+                  {weeklyAvgEfficiency}%
+                </div>
+                <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                  Average sleep consistency
                 </div>
               </div>
 
@@ -353,15 +403,8 @@ export const SleepTimeline: React.FC<SleepTimelineProps> = ({
                 <div className="text-xl font-bold text-purple-600 dark:text-purple-400">
                   {weeklyDeepRemPct}% Avg
                 </div>
-              </div>
-
-              <div className="bg-slate-50 dark:bg-slate-800/40 rounded-xl p-3 border border-slate-200 dark:border-slate-800">
-                <div className="flex items-center space-x-1.5 text-slate-500 dark:text-slate-400 mb-1">
-                  <Activity className="w-3.5 h-3.5 text-rose-500 dark:text-rose-400" />
-                  <span>Recovery Resting HR</span>
-                </div>
-                <div className="text-xl font-bold text-rose-600 dark:text-rose-400">
-                  {weeklyAvgRestingHR !== null ? `${weeklyAvgRestingHR} bpm` : "—"}
+                <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                  Deep & REM sleep proportion
                 </div>
               </div>
             </>
