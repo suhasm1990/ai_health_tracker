@@ -18,8 +18,6 @@ import { ThemeToggle } from "@/components/ThemeToggle";
 interface HeaderProps {
   authStatus: AuthStatus;
   devices: PairedDevice[];
-  selectedDeviceId: string;
-  onSelectDevice: (id: string) => void;
   onToggleDemo: () => void;
   onOpenApiTester: () => void;
   onRefreshData: () => void;
@@ -30,8 +28,6 @@ interface HeaderProps {
 export const Header: React.FC<HeaderProps> = ({
   authStatus,
   devices,
-  selectedDeviceId,
-  onSelectDevice,
   onToggleDemo,
   onOpenApiTester,
   onRefreshData,
@@ -80,45 +76,38 @@ export const Header: React.FC<HeaderProps> = ({
           </div>
         </div>
 
-        {/* Device Quick Selector (Large screens only) */}
-        <div className="hidden lg:flex items-center bg-slate-100 dark:bg-slate-800/80 rounded-lg p-1 border border-slate-200 dark:border-slate-700/60">
-          <button
-            onClick={() => onSelectDevice("all")}
-            className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
-              selectedDeviceId === "all"
-                ? "bg-emerald-600 text-white shadow-sm"
-                : "text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white"
-            }`}
-          >
-            All Sources ({devices.length})
-          </button>
-          {devices.map((device) => (
-            <button
-              key={device.id}
-              onClick={() => onSelectDevice(device.id)}
-              className={`px-3 py-1.5 rounded-md text-xs font-medium flex items-center space-x-1.5 transition-all ${
-                selectedDeviceId === device.id
-                  ? "bg-emerald-600 text-white shadow-sm"
-                  : "text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white"
-              }`}
-            >
-              <span>{device.displayName}</span>
-              {device.batteryLevel !== undefined && (
+        {/* Active Data Sources Badge (Large screens only) */}
+        {devices.length > 0 && (
+          <div className="hidden lg:flex items-center space-x-2.5 bg-slate-100/90 dark:bg-slate-800/70 rounded-xl px-3 py-1.5 border border-slate-200 dark:border-slate-700/60 shadow-2xs">
+            <span className="flex h-2 w-2 relative">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+            </span>
+            <span className="text-xs font-medium text-slate-500 dark:text-slate-400">Sources:</span>
+            <div className="flex items-center space-x-1.5">
+              {devices.map((device) => (
                 <span
-                  className={`text-[10px] px-1.5 py-0.2 rounded-sm font-mono font-medium ${
-                    selectedDeviceId === device.id
-                      ? "bg-black/20 text-white"
-                      : device.batteryLevel <= 25
-                      ? "bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/20"
-                      : "bg-slate-200/70 dark:bg-slate-700/60 text-slate-700 dark:text-slate-300"
-                  }`}
+                  key={device.id}
+                  className="inline-flex items-center space-x-1.5 px-2.5 py-0.5 rounded-md bg-white dark:bg-slate-900/90 border border-slate-200 dark:border-slate-700 text-[11px] font-medium text-slate-700 dark:text-slate-200 shadow-2xs"
+                  title={`${device.displayName} (${device.model})`}
                 >
-                  {device.batteryLevel}%
+                  <span className="truncate max-w-[130px]">{device.displayName}</span>
+                  {device.batteryLevel !== undefined && (
+                    <span
+                      className={`text-[10px] font-mono font-semibold ${
+                        device.batteryLevel <= 25
+                          ? "text-amber-500 dark:text-amber-400"
+                          : "text-emerald-600 dark:text-emerald-400"
+                      }`}
+                    >
+                      {device.batteryLevel}%
+                    </span>
+                  )}
                 </span>
-              )}
-            </button>
-          ))}
-        </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Desktop Controls (hidden on < md, visible on md+) */}
         <div className="hidden md:flex items-center space-x-1.5 sm:space-x-2.5">

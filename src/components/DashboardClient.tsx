@@ -52,7 +52,6 @@ export function DashboardClient({
 }: DashboardClientProps) {
   const [authStatus, setAuthStatus] = useState<AuthStatus>(initialAuthStatus);
   const [devices, setDevices] = useState<PairedDevice[]>(initialDevices);
-  const [selectedDeviceId, setSelectedDeviceId] = useState<string>("all");
 
   const [metrics, setMetrics] = useState<{
     today: DailyMetricSummary;
@@ -95,11 +94,6 @@ export function DashboardClient({
         const data = await res.json();
         const incomingDevices: PairedDevice[] = data.devices || [];
         setDevices(incomingDevices);
-        setSelectedDeviceId((prev) => {
-          if (prev === "all" || incomingDevices.length === 0) return "all";
-          const exists = incomingDevices.some((d: PairedDevice) => d.id === prev);
-          return exists ? prev : (incomingDevices[0]?.id || "all");
-        });
       }
     } catch (err) {
       console.error("Failed to fetch devices:", err);
@@ -111,9 +105,6 @@ export function DashboardClient({
       setIsRefreshing(true);
       try {
         const params = new URLSearchParams();
-        if (selectedDeviceId && selectedDeviceId !== "all") {
-          params.set("deviceId", selectedDeviceId);
-        }
         if (forceRefresh) {
           params.set("refresh", "true");
         }
@@ -123,10 +114,8 @@ export function DashboardClient({
           const clientDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
           const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
           params.set("clientDate", clientDate);
-          if (tz) params.set("tz", tz);
-        } catch {
-          // ignore
-        }
+          params.set("tz", tz);
+        } catch {}
 
         const query = params.toString() ? `?${params.toString()}` : "";
         const res = await fetch(`/api/health/metrics${query}`);
@@ -141,7 +130,7 @@ export function DashboardClient({
         setIsInitialLoading(false);
       }
     },
-    [selectedDeviceId, authStatus.isDemo]
+    [authStatus.isDemo]
   );
 
   const handleRefreshData = async () => {
@@ -217,16 +206,12 @@ export function DashboardClient({
     }
   };
 
-  const selectedDevice = devices.find((d) => d.id === selectedDeviceId);
-
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 flex flex-col transition-colors duration-200">
       {/* Header Bar */}
       <Header
         authStatus={authStatus}
         devices={devices}
-        selectedDeviceId={selectedDeviceId}
-        onSelectDevice={setSelectedDeviceId}
         onToggleDemo={handleToggleDemo}
         onOpenApiTester={() => setIsApiTesterOpen(true)}
         onOpenShareCard={() => setIsShareModalOpen(true)}
@@ -275,23 +260,22 @@ export function DashboardClient({
           </div>
         )}
 
-        {/* Multi-Device Management Panel */}
+        {/* Multi-Device & Data Source Management Panel */}
         <DeviceList
           devices={devices}
-          selectedDeviceId={selectedDeviceId}
-          onSelectDevice={setSelectedDeviceId}
           onSyncDevice={handleSyncDevice}
           isSyncing={isSyncing}
           onTryDemo={handleToggleDemo}
           isDemo={authStatus.isDemo}
         />
 
-        {/* Device Active Indicator Filter */}
+        {/* Telemetry Architecture Pipeline Indicator */}
         <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400 pt-1">
           <div className="flex items-center space-x-2">
-            <span className="text-slate-500 dark:text-slate-500">Currently Viewing:</span>
-            <span className="font-semibold text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-md border border-emerald-500/20">
-              {selectedDeviceId === "all" ? "All Paired Devices (Reconciled)" : selectedDevice?.displayName || selectedDeviceId}
+            <span className="text-slate-500 dark:text-slate-500">Telemetry Stream:</span>
+            <span className="inline-flex items-center space-x-1.5 font-medium text-emerald-700 dark:text-emerald-400 bg-emerald-500/10 px-2.5 py-0.5 rounded-md border border-emerald-500/20">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+              <span>Unified Telemetry ({devices.length} {devices.length === 1 ? "source" : "sources"} reconciled)</span>
             </span>
           </div>
           <span className="text-slate-400 dark:text-slate-500 font-mono text-[11px]">Google Health API v4 Rest Format</span>

@@ -10,7 +10,6 @@ import {
   BatteryCharging,
   BatteryMedium,
   BatteryLow,
-  CheckCircle2,
   RefreshCw,
   Cpu,
   Layers,
@@ -19,8 +18,6 @@ import { PairedDevice } from "@/lib/types";
 
 interface DeviceListProps {
   devices: PairedDevice[];
-  selectedDeviceId: string;
-  onSelectDevice: (id: string) => void;
   onSyncDevice: (id: string) => void;
   isSyncing: boolean;
   onTryDemo?: () => void;
@@ -29,8 +26,6 @@ interface DeviceListProps {
 
 export const DeviceList: React.FC<DeviceListProps> = ({
   devices,
-  selectedDeviceId,
-  onSelectDevice,
   onSyncDevice,
   isSyncing,
   onTryDemo,
@@ -86,28 +81,22 @@ export const DeviceList: React.FC<DeviceListProps> = ({
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-4">
         <div>
           <div className="flex items-center space-x-2">
-            <h2 className="text-base font-semibold text-slate-900 dark:text-white">Connected Devices</h2>
-            <span className="text-xs px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 font-medium">
-              {devices.length} Found
+            <h2 className="text-base font-semibold text-slate-900 dark:text-white">Connected Devices & Data Sources</h2>
+            <span className="text-xs px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-500/20 font-medium">
+              {devices.length} Contributing {devices.length === 1 ? "Source" : "Sources"}
             </span>
           </div>
           <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-            Auto-detected via Google Health API paired device registry
+            Auto-detected wearables & synced telemetry platforms contributing to your unified metrics
           </p>
         </div>
 
-        {/* Global Reconciled Switcher */}
-        <button
-          onClick={() => onSelectDevice("all")}
-          className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border transition-all ${
-            selectedDeviceId === "all"
-              ? "bg-emerald-500/20 border-emerald-500/40 text-emerald-700 dark:text-emerald-300 shadow-xs"
-              : "bg-slate-100 dark:bg-slate-800/40 border-slate-200 dark:border-slate-700/60 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-200 dark:hover:bg-slate-800/70"
-          }`}
-        >
-          <Layers className="w-3.5 h-3.5" />
-          <span>Unified (All Devices)</span>
-        </button>
+        <div className="flex items-center space-x-2">
+          <span className="inline-flex items-center space-x-1.5 text-xs text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-800/60 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700/60">
+            <Layers className="w-3.5 h-3.5 text-emerald-500" />
+            <span className="font-medium text-slate-700 dark:text-slate-300">All Sources Reconciled</span>
+          </span>
+        </div>
       </div>
 
       {/* Devices Grid */}
@@ -134,38 +123,23 @@ export const DeviceList: React.FC<DeviceListProps> = ({
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
           {devices.map((device) => {
-          const isSelected = selectedDeviceId === device.id;
-
-          return (
-            <div
-              key={device.id}
-              onClick={() => onSelectDevice(device.id)}
-              className={`relative cursor-pointer rounded-xl p-3.5 border transition-all ${
-                isSelected
-                  ? "bg-emerald-50/50 dark:bg-slate-800/90 border-emerald-500/60 ring-1 ring-emerald-500/30 shadow-md shadow-emerald-950/5 dark:shadow-emerald-950/20"
-                  : "bg-slate-50/70 dark:bg-slate-800/40 border-slate-200 dark:border-slate-700/60 hover:bg-slate-100/80 dark:hover:bg-slate-800/70 hover:border-slate-300 dark:hover:border-slate-600"
-              }`}
-            >
-              {/* Selected indicator */}
-              {isSelected && (
-                <div className="absolute top-3 right-3 flex items-center space-x-1 text-[11px] font-semibold text-emerald-700 dark:text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20">
-                  <CheckCircle2 className="w-3 h-3" />
-                  <span>Selected</span>
-                </div>
-              )}
-
-              <div className="flex items-start space-x-3">
-                <div className="p-2.5 rounded-xl bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-700/80 shadow-xs shrink-0">
-                  {getDeviceIcon(device.iconType)}
-                </div>
-
-                <div className="flex-1 min-w-0 pr-14">
-                  <div className="flex items-center space-x-2">
-                    <h3 className="text-sm font-semibold text-slate-900 dark:text-white truncate">{device.displayName}</h3>
+            return (
+              <div
+                key={device.id}
+                className="relative rounded-xl p-3.5 border bg-slate-50/70 dark:bg-slate-800/40 border-slate-200 dark:border-slate-700/60 hover:border-slate-300 dark:hover:border-slate-600 transition-all"
+              >
+                <div className="flex items-start space-x-3">
+                  <div className="p-2.5 rounded-xl bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-700/80 shadow-xs shrink-0">
+                    {getDeviceIcon(device.iconType)}
                   </div>
-                  <p className="text-xs text-slate-500 dark:text-slate-400 truncate">{device.model}</p>
+
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center space-x-2">
+                      <h3 className="text-sm font-semibold text-slate-900 dark:text-white truncate">{device.displayName}</h3>
+                    </div>
+                    <p className="text-xs text-slate-500 dark:text-slate-400 truncate">{device.model}</p>
+                  </div>
                 </div>
-              </div>
 
               {/* Status and telemetry */}
               <div className="mt-3 pt-3 border-t border-slate-200 dark:border-slate-700/40 flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
@@ -202,10 +176,14 @@ export const DeviceList: React.FC<DeviceListProps> = ({
                   )}
                 </div>
 
-                {/* Firmware */}
-                <div className="flex items-center space-x-1 text-slate-500 dark:text-slate-400 font-mono text-[11px]" title="Firmware version">
+                {/* Firmware / Platform */}
+                <div className="flex items-center space-x-1 text-slate-500 dark:text-slate-400 font-mono text-[11px]" title="Firmware or sync protocol">
                   <Cpu className="w-3 h-3 text-slate-400 dark:text-slate-500" />
-                  <span>v{device.firmwareVersion || device.hardwareVersion}</span>
+                  <span>
+                    {device.firmwareVersion?.toLowerCase().includes("sync") || device.firmwareVersion?.toLowerCase().includes("connected")
+                      ? device.firmwareVersion
+                      : `v${device.firmwareVersion || device.hardwareVersion}`}
+                  </span>
                 </div>
 
                 {/* Last Sync & Action */}

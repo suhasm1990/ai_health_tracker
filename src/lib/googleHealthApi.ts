@@ -34,6 +34,9 @@ export interface HealthMetricsPayload {
   history7Days: DailyMetricSummary[];
 }
 
+// Persistent in-memory map of discovered hardware & platform streams per user session
+const persistentSourcesByUser = new Map<string, Map<string, PairedDevice>>();
+
 /**
  * Retrieves paired devices with a 2-minute in-memory cache to prevent repeated API calls.
  */
@@ -50,6 +53,20 @@ export async function getPairedDevices(forceRefresh = false): Promise<PairedDevi
       return MOCK_DEVICES;
     }
 
+    if (!persistentSourcesByUser.has(userKey)) {
+      persistentSourcesByUser.set(userKey, new Map());
+    }
+    const userPersistentMap = persistentSourcesByUser.get(userKey)!;
+
+    const discoveredDevices: Map<string, PairedDevice> = new Map();
+    // Pre-populate with previously verified sources for this user
+    for (const [key, dev] of userPersistentMap.entries()) {
+      if (dev.displayName.toLowerCase().includes("watch") && (!dev.model || dev.model === "Apple Watch")) {
+        dev.model = "Apple Watch via HealthKit";
+      }
+      discoveredDevices.set(key, { ...dev });
+    }
+
     // 1. Try official pairedDevices endpoint (requires googlehealth.settings.readonly)
     try {
       const res = await fetch(`${BASE_URL}/users/me/pairedDevices`, {
@@ -62,31 +79,40 @@ export async function getPairedDevices(forceRefresh = false): Promise<PairedDevi
       if (res.ok) {
         const data = await res.json();
         if (data.pairedDevices && data.pairedDevices.length > 0) {
-          return data.pairedDevices.map((d: any, idx: number) => mapDevice(d, idx));
+          for (const [idx, d] of data.pairedDevices.entries()) {
+            const mapped = mapDevice(d, idx);
+            discoveredDevices.set(mapped.displayName.toLowerCase(), mapped);
+          }
         }
       }
     } catch (err) {
       console.warn("Failed to query /users/me/pairedDevices:", err);
     }
 
-    // 2. Discover devices directly from live telemetry data points (Steps, Distance, Exercise)
+    // 2. Discover devices & data sources directly from live telemetry data points (Steps, Distance, Exercise, HR)
     try {
       const [stepsRes, distRes, exerciseRes, hrRes] = await Promise.all([
-        fetch(`${BASE_URL}/users/me/dataTypes/steps/dataPoints?pageSize=10`, {
+        fetch(`${BASE_URL}/users/me/dataTypes/steps/dataPoints?pageSize=100`, {
           headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
         }),
-        fetch(`${BASE_URL}/users/me/dataTypes/distance/dataPoints?pageSize=10`, {
+        fetch(`${BASE_URL}/users/me/dataTypes/distance/dataPoints?pageSize=50`, {
           headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
         }),
-        fetch(`${BASE_URL}/users/me/dataTypes/exercise/dataPoints?pageSize=5`, {
+        fetch(`${BASE_URL}/users/me/dataTypes/exercise/dataPoints?pageSize=20`, {
           headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
         }),
-        fetch(`${BASE_URL}/users/me/dataTypes/heart-rate/dataPoints?pageSize=10`, {
+        fetch(`${BASE_URL}/users/me/dataTypes/heart-rate/dataPoints?pageSize=25`, {
           headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
         }),
       ]);
 
-      const discoveredDevices: Map<string, PairedDevice> = new Map();
+      const normalizeDeviceName = (str: string): string => {
+        return str
+          .toLowerCase()
+          .replace(/\bgoogle\b/gi, "")
+          .replace(/\s+/g, " ")
+          .trim();
+      };
 
       const processPoints = (pts: any[]) => {
         for (const pt of pts || []) {
@@ -110,33 +136,62 @@ export async function getPairedDevices(forceRefresh = false): Promise<PairedDevi
             }
           }
 
-          if (name && !discoveredDevices.has(name)) {
-            const isApple = name.toLowerCase().includes("apple") || platform === "HEALTH_KIT";
+          if (!name) continue;
+
+          const pointTime =
+            pt.steps?.interval?.endTime ||
+            pt.distance?.interval?.endTime ||
+            pt.exercise?.interval?.endTime ||
+            pt.heartRate?.sampleTime;
+
+          const isWatch = name.toLowerCase().includes("watch") || dev?.formFactor === "WATCH";
+          const isApple = name.toLowerCase().includes("apple") || platform === "HEALTH_KIT";
+
+          // Check if this device already exists in pairedDevices (e.g. "Fitbit Air" vs "Google Fitbit Air")
+          const existingDevice = Array.from(discoveredDevices.values()).find(
+            (existing) => normalizeDeviceName(existing.displayName) === normalizeDeviceName(name)
+          );
+
+          if (existingDevice) {
+            if (isWatch && (!existingDevice.model || existingDevice.model === "Apple Watch")) {
+              existingDevice.model = "Apple Watch via HealthKit";
+            }
+            if (pointTime && (!existingDevice.lastSyncTime || new Date(pointTime) > new Date(existingDevice.lastSyncTime))) {
+              existingDevice.lastSyncTime = pointTime;
+            }
+            continue;
+          }
+
+          const normKey = normalizeDeviceName(name);
+          if (!discoveredDevices.has(normKey)) {
             const isScale = name.toLowerCase().includes("scale") || name.toLowerCase().includes("aria");
-            const isWatch = name.toLowerCase().includes("watch") || dev?.formFactor === "WATCH";
             const isPhone = dev?.formFactor === "PHONE" || (isApple && !isWatch) || name.toLowerCase().includes("phone");
 
             const iconType: PairedDevice["iconType"] = isScale ? "scale" : isWatch ? "watch" : isPhone ? "phone" : "band";
             const deviceType: PairedDevice["deviceType"] = isWatch ? "SMARTWATCH" : isScale ? "SCALE" : "FITNESS_TRACKER";
             const safeId = name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
 
-            discoveredDevices.set(name, {
+            let modelName = dev?.model || name;
+            if (isWatch) {
+              modelName = dev?.model && dev.model !== "Apple Watch"
+                ? `${dev.model} via HealthKit`
+                : "Apple Watch via HealthKit";
+            } else if (isApple) {
+              modelName = "Apple iPhone via HealthKit";
+            }
+
+            discoveredDevices.set(normKey, {
               id: safeId,
               name: `users/me/devices/${safeId}`,
               displayName: name,
-              model: isWatch ? (dev?.model || "Apple Watch") : isApple ? "Apple iPhone via HealthKit" : dev?.model || name,
+              model: modelName,
               deviceType,
               manufacturer: dev?.manufacturer || (isApple ? "Apple Inc." : "Health Connect"),
-              hardwareVersion: isApple ? "iOS HealthKit" : "v1.0",
-              firmwareVersion: isApple ? "Active Sync" : "Connected",
+              hardwareVersion: dev?.hardwareVersion || (isWatch ? "watchOS HealthKit" : isApple ? "iOS HealthKit" : "v1.0"),
+              firmwareVersion: dev?.firmwareVersion || (isApple ? "Active Sync" : "Connected"),
               batteryLevel: undefined,
               batteryStatus: "UNKNOWN",
-              lastSyncTime:
-                pt.steps?.interval?.endTime ||
-                pt.distance?.interval?.endTime ||
-                pt.exercise?.interval?.endTime ||
-                pt.heartRate?.sampleTime ||
-                new Date().toISOString(),
+              lastSyncTime: pointTime || new Date().toISOString(),
               iconType,
             });
           }
@@ -162,12 +217,17 @@ export async function getPairedDevices(forceRefresh = false): Promise<PairedDevi
         const hrData = await hrRes.json();
         processPoints(hrData.dataPoints);
       }
-
-      if (discoveredDevices.size > 0) {
-        return Array.from(discoveredDevices.values());
-      }
     } catch (err) {
       console.error("Error discovering devices from telemetry:", err);
+    }
+
+    // Persist discovered sources for this user
+    for (const [key, dev] of discoveredDevices.entries()) {
+      userPersistentMap.set(key, dev);
+    }
+
+    if (discoveredDevices.size > 0) {
+      return Array.from(discoveredDevices.values());
     }
 
     return [];

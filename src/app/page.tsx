@@ -1,5 +1,5 @@
 import { getStoredTokens, getCredentials } from "@/lib/tokens";
-import { getUserProfile } from "@/lib/googleHealthApi";
+import { getUserProfile, getPairedDevices } from "@/lib/googleHealthApi";
 import { DashboardClient } from "@/components/DashboardClient";
 import { AuthStatus, DailyMetricSummary, PairedDevice, IntradayStepPoint, IntradayHeartRatePoint } from "@/lib/types";
 import {
@@ -76,9 +76,8 @@ export default async function DashboardPage() {
     };
     hasInitialMetrics = true;
   } else {
-    // For authenticated users, immediately deliver the shell & profile (< 100ms)
-    // without blocking the browser on 15+ external Google Health queries.
-    // DashboardClient asynchronously streams in live metrics with shimmer skeletons.
+    // For authenticated users, deliver cached paired devices immediately
+    initialDevices = await getPairedDevices().catch(() => []);
     hasInitialMetrics = false;
   }
 
