@@ -35,7 +35,10 @@ export function invalidateCache(prefix?: string): void {
   }
 }
 
-/** Returns the cached value, joins an identical in-flight request, or runs `fetcher`. */
+/**
+ * Returns the cached value, joins an identical in-flight request, or runs `fetcher`.
+ * `force` skips the stored value but never starts a second upstream batch while one is running.
+ */
 export function cached<T>(
   key: string,
   ttlMs: number,
@@ -45,9 +48,9 @@ export function cached<T>(
   if (!force) {
     const hit = getCached<T>(key);
     if (hit !== undefined) return Promise.resolve(hit);
-    const pending = inFlight.get(key);
-    if (pending) return pending as Promise<T>;
   }
+  const pending = inFlight.get(key);
+  if (pending) return pending as Promise<T>;
   const promise = fetcher()
     .then((value) => {
       setCached(key, value, ttlMs);

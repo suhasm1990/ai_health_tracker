@@ -10,8 +10,8 @@ const DEVICES_TTL_MS = 2 * 60 * 1000;
 const KNOWN_TTL_MS = 24 * 60 * 60 * 1000;
 
 /** Paired hardware plus platforms (Apple Health, Health Connect) discovered from live telemetry. */
-export async function getPairedDevices(force = false): Promise<PairedDevice[]> {
-  const state = await getAuthState();
+export async function getPairedDevices(force = false, auth?: AuthState): Promise<PairedDevice[]> {
+  const state = auth ?? (await getAuthState());
   if (state.isDemo) return getMockDevices();
   return cached(`${state.scope}:devices`, DEVICES_TTL_MS, () => discoverDevices(state), { force });
 }

@@ -1,3 +1,4 @@
+import type { AuthState } from "../auth";
 import { getAllHealthMetrics, getPairedDevices } from "../health";
 import { calculateReadiness } from "../readiness";
 import { formatDuration, meanOf, withUnit } from "../utils";
@@ -60,13 +61,23 @@ export interface ToolResult {
 }
 
 type ToolArgs = Record<string, unknown>;
-type ToolHandler = (args: ToolArgs) => Promise<ToolResult>;
+
+/** Per-request context so every tool shares one auth read and the user's own calendar date. */
+export interface ToolContext {
+  state: AuthState;
+  clientDate?: string;
+  clientTz?: string;
+}
+
+type ToolHandler = (args: ToolArgs, ctx: ToolContext) => Promise<ToolResult>;
+
+const metricsFor = (ctx: ToolContext) => getAllHealthMetrics({ clientDate: ctx.clientDate, clientTz: ctx.clientTz }, ctx.state);
 
 const sleepRating = (score: number) => (score >= 85 ? "Excellent" : score >= 75 ? "Good" : score >= 60 ? "Fair" : "Poor");
 
 const handlers: Record<string, ToolHandler> = {
-  async get_today_health_summary(args) {
-    const { today: t, history7Days } = await getAllHealthMetrics();
+  async get_today_health_summary(args, ctx) {
+    const { today: t, history7Days } = await metricsFor(ctx);
     const readiness = calculateReadiness(t, history7Days);
     const factor = (f: { score: number; max: number; valueFormatted: string; status: string }) =>
       `${f.score}/${f.max} (${f.valueFormatted} - ${f.status})`;
@@ -113,8 +124,8 @@ const handlers: Record<string, ToolHandler> = {
     };
   },
 
-  async get_sleep_analysis(args) {
-    const { today: t } = await getAllHealthMetrics();
+  async get_sleep_analysis(args, ctx) {
+    const { today: t } = await metricsFor(ctx);
     const highlight = (stage: string) => {
       const s = t.sleepStages.find((x) => x.stage === stage);
       return s ? `${s.percentage}% (${s.durationMinutes}m)` : "N/A";
@@ -146,8 +157,8 @@ const handlers: Record<string, ToolHandler> = {
     };
   },
 
-  async get_heart_rate_insights(args) {
-    const { today: t, intradayHeartRate } = await getAllHealthMetrics();
+  async get_heart_rate_insights(args, ctx) {
+    const { today: t, intradayHeartRate } = await metricsFor(ctx);
     return {
       data: {
         restingHeartRateBpm: t.restingHeartRate,
@@ -167,8 +178,8 @@ const handlers: Record<string, ToolHandler> = {
     };
   },
 
-  async get_weekly_trends(args) {
-    const { history7Days: history } = await getAllHealthMetrics();
+  async get_weekly_trends(args, ctx) {
+    const { history7Days: history } = await metricsFor(ctx);
     const avgSteps = meanOf(history, (d) => d.steps) ?? 0;
     const avgSleep = meanOf(history, (d) => d.sleepDurationMinutes) ?? 0;
     const avgRestingHr = meanOf(history, (d) => d.restingHeartRate);
@@ -195,8 +206,8 @@ const handlers: Record<string, ToolHandler> = {
     };
   },
 
-  async get_connected_devices(args) {
-    const devices = await getPairedDevices();
+  async get_connected_devices(args, ctx) {
+    const devices = await getPairedDevices(false, ctx.state);
     const first = devices[0];
     return {
       data: {
@@ -222,8 +233,8 @@ const handlers: Record<string, ToolHandler> = {
   },
 };
 
-export async function executeHealthTool(name: string, args: ToolArgs = {}): Promise<ToolResult> {
+export async function executeHealthTool(name: string, args: ToolArgs, ctx: ToolContext): Promise<ToolResult> {
   const handler = handlers[name];
   if (!handler) throw new Error(`Unknown health tool: ${name}`);
-  return handler(args);
+  return handler(args, ctx);
 }

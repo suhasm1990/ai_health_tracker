@@ -1,6 +1,8 @@
+import { getAuthState } from "@/lib/auth";
 import { errorResponse, json } from "@/lib/http";
-import { runHealthAgent } from "@/lib/llm/agent";
+import { runHealthAgent, type ToolContext } from "@/lib/llm/agent";
 import type { ChatMessage } from "@/lib/llm/types";
+import { isValidIsoDate } from "@/lib/utils";
 
 const MAX_MESSAGES = 40;
 const MAX_CONTENT_CHARS = 4000;
@@ -23,7 +25,13 @@ export async function POST(request: Request) {
   if (!messages) return json({ error: "Body must contain a non-empty 'messages' array of user/assistant turns" }, 400);
 
   try {
-    return json(await runHealthAgent(messages));
+    // One auth read per request; the client's date/timezone keep tool data on the same cache key as the dashboard.
+    const ctx: ToolContext = {
+      state: await getAuthState(),
+      clientDate: isValidIsoDate(body.clientDate) ? body.clientDate : undefined,
+      clientTz: typeof body.tz === "string" && body.tz.length <= 64 ? body.tz : undefined,
+    };
+    return json(await runHealthAgent(messages, ctx));
   } catch (err) {
     return errorResponse(err, "Failed to process chat message");
   }

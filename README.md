@@ -61,6 +61,7 @@ src/
 - The server owns auth and data shaping; API responses are `private, no-store`. The client never sends provider keys or endpoints.
 - Metrics are joined by calendar day, so a missing day in one Google rollup cannot shift another.
 - **No invented numbers.** Missing readings show as "—" and reach the AI coach as `null`.
+- **Call budget.** A dashboard load is one browser request; the server fans out to Google in parallel (six daily rollups, two hourly rollups, sleep, HRV, SpO2) and caches the result for 60 s per user and day. Body measurements are kept for an hour, device discovery for two minutes, raw HRV samples are fetched only when no daily summary exists, and identical concurrent requests share one upstream call. The AI coach sends the same date and timezone as the dashboard, so its tools reuse that cache.
 - **Data freshness.** Before the day's first sync, activity totals read zero and the dashboard shows a "No sync yet today" notice. Readings such as resting heart rate and sleep may show the most recent recorded day, labeled with that date.
 
 ## Deploy to Vercel

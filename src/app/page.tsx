@@ -1,5 +1,5 @@
 import { Dashboard } from "@/components/Dashboard";
-import { buildAuthStatus } from "@/lib/auth";
+import { buildAuthStatus, getAuthState } from "@/lib/auth";
 import { getPairedDevices } from "@/lib/health";
 import { getMockDevices, getMockMetrics } from "@/lib/mockData";
 
@@ -15,7 +15,8 @@ function redirectNotice(params: Record<string, string | string[] | undefined>): 
 }
 
 export default async function DashboardPage({ searchParams }: { searchParams: SearchParams }) {
-  const [authStatus, params] = await Promise.all([buildAuthStatus(), searchParams]);
+  const state = await getAuthState(); // read the session once for the whole render
+  const [authStatus, params] = await Promise.all([buildAuthStatus({ state }), searchParams]);
   const notice = redirectNotice(params);
 
   // Demo mode is fully server-rendered. Live mode ships cached devices now and
@@ -23,6 +24,6 @@ export default async function DashboardPage({ searchParams }: { searchParams: Se
   if (authStatus.isDemo) {
     return <Dashboard initialAuthStatus={authStatus} initialDevices={getMockDevices()} initialMetrics={getMockMetrics()} initialNotice={notice} />;
   }
-  const devices = await getPairedDevices().catch(() => []);
+  const devices = await getPairedDevices(false, state).catch(() => []);
   return <Dashboard initialAuthStatus={authStatus} initialDevices={devices} initialMetrics={null} initialNotice={notice} />;
 }

@@ -3,6 +3,9 @@ import { runToolLoop, type AgentRun } from "./loop";
 import { geminiAdapter } from "./providers/gemini";
 import { runMockAdvisor } from "./providers/mock";
 import { openAiAdapter } from "./providers/openai";
+import type { ToolContext } from "./tools";
+
+export type { ToolContext };
 import type { AgentResponse, ChatMessage } from "./types";
 
 const SYSTEM_PROMPT = `You are an AI Personal Health Coach for AI Health Tracker (Powered by Google Health API).
@@ -32,16 +35,16 @@ const toResponse = (run: AgentRun, provider: string, model: string): AgentRespon
 });
 
 /** Answers with the configured provider, falling back to the offline advisor on any provider failure. */
-export async function runHealthAgent(messages: ChatMessage[]): Promise<AgentResponse> {
+export async function runHealthAgent(messages: ChatMessage[], ctx: ToolContext): Promise<AgentResponse> {
   const config = resolveLlmConfig();
-  if (!config.apiKey) return toResponse(await runMockAdvisor(messages), PROVIDER_LABELS.mock, MOCK_MODEL);
+  if (!config.apiKey) return toResponse(await runMockAdvisor(messages, ctx), PROVIDER_LABELS.mock, MOCK_MODEL);
 
   try {
     const adapter = config.provider === "google" ? geminiAdapter(messages, config, SYSTEM_PROMPT) : openAiAdapter(messages, config, SYSTEM_PROMPT);
-    return toResponse(await runToolLoop(adapter), PROVIDER_LABELS[config.provider] ?? "LLM", config.model);
+    return toResponse(await runToolLoop(adapter, ctx), PROVIDER_LABELS[config.provider] ?? "LLM", config.model);
   } catch (err) {
     console.error("Agent execution error, falling back to offline advisor:", err);
-    const fallback = await runMockAdvisor(messages);
+    const fallback = await runMockAdvisor(messages, ctx);
     const reason = err instanceof Error ? err.message : "Unknown error";
     return toResponse(
       { ...fallback, text: `> ⚠️ **Provider Notice**: Reverted to the local advisor because the ${config.provider} call failed: *${reason}*.\n\n${fallback.text}` },

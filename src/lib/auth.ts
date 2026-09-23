@@ -155,8 +155,8 @@ export async function getUserProfile(state: AuthState, force = false): Promise<U
 }
 
 /** The auth snapshot shared by the server-rendered page and /api/auth/status. */
-export async function buildAuthStatus(force = false): Promise<AuthStatus> {
-  const state = await getAuthState();
+export async function buildAuthStatus({ state: auth, force = false }: { state?: AuthState; force?: boolean } = {}): Promise<AuthStatus> {
+  const state = auth ?? (await getAuthState());
   const { clientId, clientSecret } = getCredentials();
   const llm = resolveLlmConfig();
   return {

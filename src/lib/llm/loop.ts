@@ -1,4 +1,4 @@
-import { executeHealthTool } from "./tools";
+import { executeHealthTool, type ToolContext } from "./tools";
 import type { ToolExecutionSummary } from "./types";
 
 export interface ToolCall {
@@ -36,7 +36,7 @@ const DEFAULT_TEXT = "I have analyzed your health data.";
 const MAX_TURNS_TEXT = "I analyzed your health metrics, but reached the maximum tool reasoning steps.";
 
 /** Runs the model until it answers without tool calls, executing requested tools in parallel between turns. */
-export async function runToolLoop(adapter: ProviderAdapter): Promise<AgentRun> {
+export async function runToolLoop(adapter: ProviderAdapter, ctx: ToolContext): Promise<AgentRun> {
   const toolsCalled: ToolExecutionSummary[] = [];
   for (let turn = 0; turn < MAX_TURNS; turn++) {
     const { text, toolCalls } = await adapter.complete();
@@ -44,7 +44,7 @@ export async function runToolLoop(adapter: ProviderAdapter): Promise<AgentRun> {
     const results = await Promise.all(
       toolCalls.map(async (call): Promise<ToolOutcome> => {
         try {
-          const result = await executeHealthTool(call.name, call.args);
+          const result = await executeHealthTool(call.name, call.args, ctx);
           toolsCalled.push(result.summary);
           return { call, output: result.data };
         } catch (err) {

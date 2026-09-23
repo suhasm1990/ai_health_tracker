@@ -64,6 +64,17 @@ export function civilInZone(date: Date, timeZone?: string): CivilDate & { hour: 
 
 export const todayIso = (timeZone?: string): string => civilToIso(civilInZone(new Date(), timeZone));
 
+/** The browser's calendar date and IANA timezone, sent with requests so the server works with the user's "today". */
+export function clientLocale(): { clientDate: string; tz?: string } {
+  let tz: string | undefined;
+  try {
+    tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  } catch {
+    /* timezone unavailable; the server falls back to its own clock */
+  }
+  return { clientDate: todayIso(), tz };
+}
+
 export const WEEKDAY_SHORT = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] as const;
 
 /** "Today" for the current date, otherwise the short weekday name. */

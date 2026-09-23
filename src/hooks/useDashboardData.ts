@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import type { AuthStatus, HealthMetricsPayload, PairedDevice } from "@/lib/types";
-import { emptyDay, todayIso } from "@/lib/utils";
+import { clientLocale, emptyDay, todayIso } from "@/lib/utils";
 
 export interface DashboardInitial {
   authStatus: AuthStatus;
@@ -24,13 +24,10 @@ async function getJson<T>(url: string, init?: RequestInit): Promise<T> {
 
 /** Fetches metrics for the user's local date and timezone. */
 function fetchMetrics(force: boolean): Promise<HealthMetricsPayload> {
-  const params = new URLSearchParams({ clientDate: todayIso() });
+  const { clientDate, tz } = clientLocale();
+  const params = new URLSearchParams({ clientDate });
+  if (tz) params.set("tz", tz);
   if (force) params.set("refresh", "true");
-  try {
-    params.set("tz", Intl.DateTimeFormat().resolvedOptions().timeZone);
-  } catch {
-    /* timezone unavailable; the server falls back to its own clock */
-  }
   return getJson<HealthMetricsPayload>(`/api/health/metrics?${params}`);
 }
 

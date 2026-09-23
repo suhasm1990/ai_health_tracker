@@ -4,7 +4,7 @@ import { getSession, setSessionCookie } from "@/lib/session";
 
 export async function GET(request: Request) {
   try {
-    return json(await buildAuthStatus(flag(new URL(request.url), "refresh")));
+    return json(await buildAuthStatus({ force: flag(new URL(request.url), "refresh") }));
   } catch (err) {
     return errorResponse(err, "Failed to read auth status");
   }

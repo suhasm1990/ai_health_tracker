@@ -5,7 +5,7 @@ import { useEffect, useImperativeHandle, useRef, useState, type Ref } from "reac
 import { renderMarkdown } from "@/lib/markdown";
 import type { AgentResponse, ChatMessage, ToolExecutionSummary } from "@/lib/llm/types";
 import type { LlmStatus } from "@/lib/types";
-import { formatClock } from "@/lib/utils";
+import { clientLocale, formatClock } from "@/lib/utils";
 
 interface MessageItem extends ChatMessage {
   id: string;
@@ -46,7 +46,7 @@ async function requestReply(history: MessageItem[]): Promise<Partial<AgentRespon
   const res = await fetch("/api/chat", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ messages: history.map(({ role, content }) => ({ role, content })) }),
+    body: JSON.stringify({ messages: history.map(({ role, content }) => ({ role, content })), ...clientLocale() }),
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || `Chat error (${res.status})`);

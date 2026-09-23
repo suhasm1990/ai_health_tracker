@@ -1,6 +1,6 @@
 import { formatClock } from "../../utils";
 import type { AgentRun } from "../loop";
-import { executeHealthTool } from "../tools";
+import { executeHealthTool, type ToolContext } from "../tools";
 import type { ChatMessage, ToolExecutionSummary } from "../types";
 
 const n = (value: unknown, unit: string) => (typeof value === "number" && value > 0 ? `**${value.toLocaleString()} ${unit}**` : "**—**");
@@ -8,25 +8,24 @@ const n = (value: unknown, unit: string) => (typeof value === "number" && value 
 /* eslint-disable @typescript-eslint/no-explicit-any -- tool payloads are provider-facing JSON */
 type Intent = { match: RegExp; run: () => Promise<AgentRun> };
 
-async function call(name: string, toolsCalled: ToolExecutionSummary[]): Promise<any> {
-  const result = await executeHealthTool(name);
-  toolsCalled.push(result.summary);
-  return result.data;
-}
-
 /**
  * Offline advisor used when no LLM key is configured: routes the question to the
  * matching health tool and renders a compact, factual answer from real data.
  */
-export async function runMockAdvisor(messages: ChatMessage[]): Promise<AgentRun> {
+export async function runMockAdvisor(messages: ChatMessage[], ctx: ToolContext): Promise<AgentRun> {
   const question = [...messages].reverse().find((m) => m.role === "user")?.content.toLowerCase() ?? "";
   const toolsCalled: ToolExecutionSummary[] = [];
+  const call = async (name: string): Promise<any> => {
+    const result = await executeHealthTool(name, {}, ctx);
+    toolsCalled.push(result.summary);
+    return result.data;
+  };
 
   const intents: Intent[] = [
     {
       match: /sleep|bed|rest|wake/,
       run: async () => {
-        const s = await call("get_sleep_analysis", toolsCalled);
+        const s = await call("get_sleep_analysis");
         const good = s.sleepScore >= 80;
         return {
           toolsCalled,
@@ -41,7 +40,7 @@ export async function runMockAdvisor(messages: ChatMessage[]): Promise<AgentRun>
     {
       match: /battery|device|fitbit|watch|sync/,
       run: async () => {
-        const main = (await call("get_connected_devices", toolsCalled)).devices?.[0];
+        const main = (await call("get_connected_devices")).devices?.[0];
         return {
           toolsCalled,
           text: main
@@ -56,7 +55,7 @@ export async function runMockAdvisor(messages: ChatMessage[]): Promise<AgentRun>
     {
       match: /heart|bpm|cardio|hrv/,
       run: async () => {
-        const hr = await call("get_heart_rate_insights", toolsCalled);
+        const hr = await call("get_heart_rate_insights");
         return {
           toolsCalled,
           text: `**Cardiovascular Insights**:
@@ -71,7 +70,7 @@ export async function runMockAdvisor(messages: ChatMessage[]): Promise<AgentRun>
     {
       match: /trend|week|history|progress/,
       run: async () => {
-        const t = (await call("get_weekly_trends", toolsCalled)).weeklyAverages;
+        const t = (await call("get_weekly_trends")).weeklyAverages;
         return {
           toolsCalled,
           text: `**7-Day Trends**:
@@ -87,8 +86,8 @@ export async function runMockAdvisor(messages: ChatMessage[]): Promise<AgentRun>
   const intent = intents.find((i) => i.match.test(question));
   if (intent) return intent.run();
 
-  const s = await call("get_today_health_summary", toolsCalled);
-  const device = (await call("get_connected_devices", toolsCalled)).devices?.[0];
+  const s = await call("get_today_health_summary");
+  const device = (await call("get_connected_devices")).devices?.[0];
   const remaining = Math.max(0, s.stepsGoal - s.steps);
   return {
     toolsCalled,

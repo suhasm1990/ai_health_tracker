@@ -31,6 +31,7 @@ export interface MetricsQuery {
 }
 
 const METRICS_TTL_MS = 60_000;
+const BODY_TTL_MS = 60 * 60 * 1000;
 const ROLLUP_TYPES = ["steps", "total-calories", "distance", "active-zone-minutes", "heart-rate", "floors"] as const;
 const KM_PER_STEP = 0.00075;
 
@@ -38,8 +39,8 @@ const KM_PER_STEP = 0.00075;
  * Unified health payload: today's summary, intraday series and 7-day history.
  * Cached for 60s per user and date; concurrent callers share one upstream batch.
  */
-export async function getAllHealthMetrics(query: MetricsQuery = {}): Promise<HealthMetricsPayload> {
-  const state = await getAuthState();
+export async function getAllHealthMetrics(query: MetricsQuery = {}, auth?: AuthState): Promise<HealthMetricsPayload> {
+  const state = auth ?? (await getAuthState());
   const today = isValidIsoDate(query.clientDate) ? query.clientDate : todayIso(query.clientTz);
   if (state.isDemo) return getMockMetrics(today);
   return cached(`${state.scope}:metrics:${today}`, METRICS_TTL_MS, () => loadLiveMetrics(state, today, query.clientTz), {
@@ -106,9 +107,10 @@ function oxygenStats(points: api.DataPoint[], today: string) {
   };
 }
 
-function bodyStats(weight: api.DataPoint[], height: api.DataPoint[]) {
-  const grams = weight[0]?.weight?.weightGrams;
-  const mm = height[0]?.height?.heightMillimeters;
+async function fetchBodyStats(token: string) {
+  const [weight, height] = await Promise.all([api.listDataPoints(token, "weight", 1), api.listDataPoints(token, "height", 1)]);
+  const grams = weight?.dataPoints?.[0]?.weight?.weightGrams;
+  const mm = height?.dataPoints?.[0]?.height?.heightMillimeters;
   const weightKg = isPositive(grams) ? round(grams / 1000, 1) : null;
   const heightMeters = isPositive(mm) ? round(mm / 1000, 3) : null;
   const bmi = weightKg && heightMeters ? round(weightKg / (heightMeters * heightMeters), 1) : null;
@@ -124,14 +126,13 @@ async function loadLiveMetrics(state: AuthState, today: string, timeZone?: strin
   const rangeEnd = isoToCivil(shiftIso(today, 2));
   const intradayWindow = { start: new Date(`${shiftIso(today, -1)}T00:00:00Z`), end: new Date(`${shiftIso(today, 1)}T23:59:59Z`) };
 
-  const [rollups, sleep, hrv, dailyHrv, spo2, weight, height, intradaySteps, intradayHeartRate] = await Promise.all([
+  const [rollups, sleep, dailyHrv, spo2, body, intradaySteps, intradayHeartRate] = await Promise.all([
     Promise.all(ROLLUP_TYPES.map((type) => api.dailyRollup(token, type, rangeStart, rangeEnd).then(indexByDate))),
     api.listDataPoints(token, "sleep", 20),
-    api.listDataPoints(token, "heart-rate-variability", 20),
     api.listDataPoints(token, "daily-heart-rate-variability", 10),
     api.listDataPoints(token, "oxygen-saturation", 20),
-    api.listDataPoints(token, "weight", 1),
-    api.listDataPoints(token, "height", 1),
+    // Weight and height change rarely: keep them for an hour instead of refetching every load.
+    cached(`${state.scope}:body`, BODY_TTL_MS, () => fetchBodyStats(token)),
     fetchIntradaySteps(token, intradayWindow, today, timeZone),
     fetchIntradayHeartRate(token, intradayWindow, today, timeZone),
   ]);
@@ -182,12 +183,10 @@ async function loadLiveMetrics(state: AuthState, today: string, timeZone?: strin
     };
   };
 
-  const todayRow: DailyMetricSummary = {
-    ...buildDay(today, true),
-    heartRateVariability: reading(hrvByDate, today, true) ?? latestRawHrv(hrv?.dataPoints ?? []),
-    ...oxygenStats(spo2?.dataPoints ?? [], today),
-    ...bodyStats(weight?.dataPoints ?? [], height?.dataPoints ?? []),
-  };
+  // Raw HRV samples are only requested when no daily summary covers today.
+  const heartRateVariability =
+    reading(hrvByDate, today, true) ?? latestRawHrv((await api.listDataPoints(token, "heart-rate-variability", 20))?.dataPoints ?? []);
+  const todayRow: DailyMetricSummary = { ...buildDay(today, true), heartRateVariability, ...oxygenStats(spo2?.dataPoints ?? [], today), ...body };
   const history7Days = lastDays(today, HISTORY_DAYS).map((iso) => (iso === today ? todayRow : buildDay(iso)));
 
   const freshness = {
