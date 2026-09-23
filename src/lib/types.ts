@@ -1,6 +1,6 @@
 export type DeviceType = "SMARTWATCH" | "FITNESS_TRACKER" | "SCALE" | "PHONE" | "OTHER";
-
 export type BatteryStatus = "UNKNOWN" | "LOW" | "MEDIUM" | "HIGH" | "CHARGING" | "FULL";
+export type DeviceIcon = "watch" | "band" | "scale" | "phone";
 
 export interface PairedDevice {
   id: string;
@@ -11,32 +11,41 @@ export interface PairedDevice {
   manufacturer: string;
   hardwareVersion?: string;
   firmwareVersion?: string;
-  batteryLevel?: number; // 0-100
+  /** 0-100 */
+  batteryLevel?: number;
   batteryStatus: BatteryStatus;
-  lastSyncTime: string; // ISO date
-  iconType: "watch" | "band" | "scale" | "phone";
+  /** ISO timestamp */
+  lastSyncTime: string;
+  iconType: DeviceIcon;
 }
 
 export interface IntradayStepPoint {
-  time: string; // e.g. "09:00"
+  /** "HH:00" */
+  time: string;
   steps: number;
 }
 
+export type HeartRateZone = "Resting" | "Fat Burn" | "Cardio" | "Peak";
+
 export interface IntradayHeartRatePoint {
-  time: string; // e.g. "09:00"
+  time: string;
   bpm: number;
-  zone: "Resting" | "Fat Burn" | "Cardio" | "Peak";
+  zone: HeartRateZone;
 }
 
+export type SleepStage = "Deep" | "Light" | "REM" | "Awake";
+
 export interface SleepStageSegment {
-  stage: "Deep" | "Light" | "REM" | "Awake";
+  stage: SleepStage;
   durationMinutes: number;
   percentage: number;
-  color: string;
 }
 
 export interface DailyMetricSummary {
-  date: string; // YYYY-MM-DD
+  /** ISO date, YYYY-MM-DD */
+  date: string;
+  /** Short display label, e.g. "Mon" or "Today" */
+  label: string;
   steps: number;
   stepsGoal: number;
   activeZoneMinutes: number;
@@ -48,24 +57,42 @@ export interface DailyMetricSummary {
   restingHeartRate: number | null;
   avgHeartRate: number | null;
   maxHeartRate: number | null;
-  heartRateVariability: number | null; // ms (HRV)
-  oxygenSaturation: number | null; // % (SpO2)
-  respiratoryRate: number | null; // breaths/min
-  sleepDurationMinutes: number;
-  sleepScore: number;
-  sleepEfficiency?: number; // % (Clinical: Time Asleep / Time In Bed)
-  sleepStages: SleepStageSegment[];
-  sleepStartTime?: string | null; // e.g. "11:14 PM"
-  sleepEndTime?: string | null;   // e.g. "07:22 AM"
-  weightKg?: number | null;
-  bodyFatPercent?: number | null;
-  fatBurnMinutes?: number;
-  cardioPeakMinutes?: number;
+  /** RMSSD in ms */
+  heartRateVariability: number | null;
+  /** SpO2 % */
+  oxygenSaturation: number | null;
   minOxygenSaturation?: number | null;
   maxOxygenSaturation?: number | null;
   oxygenSaturationSamples?: number;
+  respiratoryRate: number | null;
+  sleepDurationMinutes: number;
+  sleepScore: number;
+  /** Time asleep / time in bed, % */
+  sleepEfficiency: number | null;
+  sleepStages: SleepStageSegment[];
+  sleepStartTime: string | null;
+  sleepEndTime: string | null;
+  weightKg: number | null;
   heightMeters?: number | null;
   bmi?: number | null;
+  bodyFatPercent?: number | null;
+  fatBurnMinutes: number;
+  cardioPeakMinutes: number;
+}
+
+export interface DataFreshness {
+  /** True when at least one activity rollup exists for today (the device has synced today). */
+  syncedToday: boolean;
+  /** ISO date of the most recent day that supplied a reading shown as "today"; null when nothing fell back. */
+  fallbackDate: string | null;
+}
+
+export interface HealthMetricsPayload {
+  today: DailyMetricSummary;
+  intradaySteps: IntradayStepPoint[];
+  intradayHeartRate: IntradayHeartRatePoint[];
+  history7Days: DailyMetricSummary[];
+  freshness: DataFreshness;
 }
 
 export interface UserProfile {
@@ -73,21 +100,20 @@ export interface UserProfile {
   displayName: string;
   email: string;
   avatarUrl?: string;
-  unitSystem: "METRIC" | "IMPERIAL";
+}
+
+export interface LlmStatus {
+  provider: string;
+  model: string;
+  hasApiKey: boolean;
 }
 
 export interface AuthStatus {
   isAuthenticated: boolean;
   isDemo: boolean;
+  hasCredentials: boolean;
   user?: UserProfile;
   scopesGranted: string[];
-  hasCredentials: boolean;
-  activeDeviceId?: string;
-  apiVersion?: string;
-}
-
-export interface GoogleHealthApiRawResponse {
-  endpoint: string;
-  status: number;
-  data: unknown;
+  apiVersion: string;
+  llm?: LlmStatus;
 }

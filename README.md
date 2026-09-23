@@ -1,151 +1,75 @@
 # AI Health Tracker
 
-> **Powered by Google Health API** • Multi-Device Wearables & Smart Scale Analytics with Proactive Clinical AI Coaching
+A Next.js dashboard for wearable health data from the **Google Health API** (Fitbit, Pixel Watch, Apple Health via Health Connect), with a readiness score, sleep analysis, habit streaks, and an AI health coach that answers questions from your real metrics.
 
-A modern full-stack web application designed to track, visualize, and analyze personal health and fitness telemetry from the **Google Health API**, supporting **Fitbit Air**, **Pixel Watch**, **Fitbit Charge**, **Fitbit Aria Air scale**, and other connected devices.
+Runs fully offline in **Demo mode** with sample data. Connect a Google account for live data.
 
----
-
-## 🌟 Features
-
-- **Multi-Device Support**:
-  - Automatically queries `GET /v4/users/me/pairedDevices` to discover connected wearables and smart scales.
-  - Displays real-time device telemetry: battery gauge, firmware version, and last sync timestamp.
-  - Supports device-specific filtering and unified multi-device reconciliation.
-- **Hero Daily Readiness & Recovery Score (0–100)**:
-  - Clinical multivariate algorithm evaluating Sleep Restoration, Cardiac Autonomic Tone (vs 7-day personal resting HR baseline), and Activity Strain.
-  - Concentric glowing activity rings for Steps, Energy, and Recovery.
-- **Proactive AI Daily Health Briefing & Coach**:
-  - Zero-latency personalized circadian briefing synthesizing sleep architecture and heart rate variability.
-  - 1-click interactive AI deep-dives for sleep optimization, movement planning, and cardiac analysis.
-  - Powered by Gemini, NVIDIA NIM (Llama 3.3 70B), or custom OpenAI-compatible providers.
-- **Habit Streaks & Milestone Celebrations**:
-  - Tracks consecutive days for Daily Steps, Restorative Sleep, and Active Zone Minutes with a 7-day dot completion tracker.
-- **Family & Friends Social Share Card**:
-  - Client-side 2x Retina graphic generation via HTML5 Canvas (zero server load) for sharing daily highlights to WhatsApp, iMessage, and Slack.
-- **Mobile First & PWA Ready**:
-  - Fully responsive mobile navigation with compact header and slide-down drawer.
-  - Installable Progressive Web App (PWA) with standalone display mode.
-- **Developer Tools**:
-  - Integrated **API Explorer & Tester** to send requests to Google Health API endpoints and inspect live JSON payloads.
-
----
-
-## 🚀 Getting Started
-
-### 1. Prerequisites
-
-- Node.js 18+ or 20+
-- A Google Cloud Project with the Google Health API enabled (for live data), or use the built-in **Demo Sandbox Mode**.
-
-### 2. Installation
+## Quick start
 
 ```bash
-# Clone the repository
-git clone git@github.com:suhasm1990/ai_health_tracker.git
-cd ai_health_tracker
-
-# Install dependencies
 npm install
+cp .env.example .env.local   # fill in values (see below)
+npm run dev                  # http://localhost:3000
 ```
 
-### 3. Environment Configuration
+Other scripts: `npm run build`, `npm start`, `npm run lint`.
 
-Create a `.env.local` file by copying `.env.example`:
+## Configuration (`.env.local`)
 
-```bash
-cp .env.example .env.local
+| Variable | Required | Purpose |
+|---|---|---|
+| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | For live data | OAuth 2.0 client from Google Cloud Console |
+| `GOOGLE_REDIRECT_URI` | For live data | `http://localhost:3000/api/auth/callback` locally; on Vercel it is derived automatically |
+| `SESSION_SECRET` | Production | Encrypts the session cookie (`openssl rand -hex 32`) |
+| `GOOGLE_HEALTH_API_VERSION` | No | Defaults to `v4` |
+| `NVIDIA_API_KEY` **or** `GEMINI_API_KEY` **or** `OPENAI_API_KEY` | No | Enables the AI coach. Without a key an offline advisor answers from the same data |
+
+Custom OpenAI-compatible endpoints: set `LLM_PROVIDER`, `LLM_API_KEY`, `LLM_MODEL`, `LLM_BASE_URL`.
+
+### Google Cloud setup (live data)
+
+1. Create a project and enable the **Google Health API**.
+2. OAuth consent screen: type **External**, add your account as a test user.
+3. Create an **OAuth Client ID** (Web application) with redirect URI `http://localhost:3000/api/auth/callback` (and your production URL).
+4. Copy the client ID and secret into `.env.local`.
+
+## Features
+
+- **Readiness score (0–100)** from HRV, sleep, resting heart rate, and daily strain, with a written recommendation.
+- **Daily briefing and AI coach** with tool calling over live metrics (Gemini, NVIDIA NIM, OpenAI, or offline).
+- **Charts**: hourly steps and heart rate, 7-day trends, sleep stages with a clinical sleep quality index.
+- **Habit streaks**, device list with battery and sync status, shareable snapshot card, installable PWA, light/dark theme.
+- **API Explorer** for sending requests to Google Health endpoints and inspecting raw JSON.
+
+## How it works
+
+```text
+src/
+├── app/           page.tsx (server-rendered) + api/ routes: auth, health/{metrics,devices,raw}, chat
+├── components/    UI; ui/ holds shared primitives (Panel, StatTile, ViewToggle, …)
+├── hooks/         useDashboardData (client data loading), useChartTheme
+└── lib/
+    ├── auth.ts, session.ts     OAuth, token refresh, AES-256-GCM encrypted HTTP-only cookie
+    ├── health/                 Google Health client, metrics assembly, sleep scoring, device discovery
+    ├── llm/                    provider-agnostic tool-calling loop + offline advisor
+    ├── readiness.ts            readiness algorithm (pure)
+    └── cache.ts, mockData.ts, utils.ts, constants.ts, types.ts
 ```
 
-Fill in your configuration:
+- The server owns auth and data shaping; API responses are `private, no-store`. The client never sends provider keys or endpoints.
+- Metrics are joined by calendar day, so a missing day in one Google rollup cannot shift another.
+- **No invented numbers.** Missing readings show as "—" and reach the AI coach as `null`.
+- **Data freshness.** Before the day's first sync, activity totals read zero and the dashboard shows a "No sync yet today" notice. Readings such as resting heart rate and sleep may show the most recent recorded day, labeled with that date.
 
-```env
-# Google Cloud OAuth 2.0 Credentials
-GOOGLE_CLIENT_ID=your-client-id.apps.googleusercontent.com
-GOOGLE_CLIENT_SECRET=your-client-secret
-GOOGLE_REDIRECT_URI=http://localhost:3000/api/auth/callback
+## Deploy to Vercel
 
-# Session encryption secret (required in production)
-SESSION_SECRET=your-random-session-secret
+Import the repo at [vercel.com/new](https://vercel.com/new), add the environment variables above (leave `GOOGLE_REDIRECT_URI` blank), deploy, then add `https://<your-app>.vercel.app/api/auth/callback` to the OAuth client's authorized redirect URIs.
 
-# Google Health API version
-GOOGLE_HEALTH_API_VERSION=v4
+## Security
 
-# Optional: AI Health Assistant Provider (Gemini / NVIDIA NIM / OpenAI)
-GEMINI_API_KEY=your-gemini-api-key
-GEMINI_MODEL=gemini-2.5-flash
-```
+- Tokens live only in an encrypted, HTTP-only session cookie; nothing is written to disk or shared memory.
+- The OAuth callback verifies a random `state` cookie (CSRF). The API Explorer proxy only forwards relative paths to the Google Health host.
 
-### 4. Run the Development Server
+## Disclaimer
 
-```bash
-npm run dev
-```
-
-Open [http://localhost:3000](http://localhost:3000) in your browser.
-
----
-
-## ⚡ Deploying to Vercel
-
-Since the code is hosted on GitHub at `suhasm1990/ai_health_tracker`, deploying to Vercel is seamless:
-
-### Option A: Via Vercel Dashboard (Recommended)
-
-1. Go to [vercel.com/new](https://vercel.com/new).
-2. Under **Import Git Repository**, select **`ai_health_tracker`**.
-3. In **Environment Variables**, add the keys from your `.env.local`:
-   - `GOOGLE_CLIENT_ID`: Your Google OAuth client ID.
-   - `GOOGLE_CLIENT_SECRET`: Your Google OAuth client secret.
-   - `SESSION_SECRET`: A strong random string for encrypting user session cookies (e.g. run `openssl rand -hex 32`).
-   - `GOOGLE_HEALTH_API_VERSION`: `v4`
-   - `GOOGLE_REDIRECT_URI`: `https://<your-app-name>.vercel.app/api/auth/callback` *(or leave blank; Vercel URLs are automatically detected)*.
-   - `GEMINI_API_KEY`: Your Google AI Gemini key (or `NVIDIA_API_KEY`).
-4. Click **Deploy**.
-5. Once deployed, copy your production domain (e.g., `https://ai-health-tracker.vercel.app`), go to **Google Cloud Console > Credentials > your OAuth Client ID**, and add to **Authorized redirect URIs**:
-   ```text
-   https://<your-app-name>.vercel.app/api/auth/callback
-   ```
-
-### Option B: Via Vercel CLI
-
-```bash
-# Log in to your Vercel account
-npx vercel login
-
-# Deploy preview
-npx vercel
-
-# Deploy directly to production
-npx vercel --prod
-```
-
----
-
-## 🔑 Google Cloud Setup (For Live Health Data)
-
-1. Open the [Google Cloud Console](https://console.cloud.google.com/).
-2. Create a new project or select an existing one.
-3. Enable the **Google Health API** under **APIs & Services > Library**.
-4. Under **OAuth consent screen**:
-   - Set User Type to **External**.
-   - Add your Google account under **Test users**.
-5. Under **Credentials**, create an **OAuth 2.0 Client ID**:
-   - Application Type: **Web application**.
-   - Name: `AI Health Tracker`.
-   - Authorized redirect URIs: `http://localhost:3000/api/auth/callback`.
-6. Copy the **Client ID** and **Client Secret** into your `.env.local` file.
-
----
-
-## 🔒 Security & Privacy
-
-- Credentials and OAuth refresh tokens are stored securely in encrypted HTTP-only session cookies and are never committed to version control.
-- Sensitive environment files (`.env.local`, `.tokens.json`) are strictly excluded via `.gitignore`.
-- Dual-mode architecture ensures the app can run completely offline in Demo Sandbox mode without any external API calls.
-
----
-
-## 📄 License & Legal Notice
-
-Independently developed. Google Health, Fitbit, and Apple Health are trademarks of their respective owners.
+For general wellness tracking only; not a medical device. Google, Google Health, and Fitbit are trademarks of Google LLC; Apple Health is a trademark of Apple Inc. This project is independent and not endorsed by either.

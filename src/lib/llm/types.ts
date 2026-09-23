@@ -1,20 +1,12 @@
-export type LlmProviderType = "nvidia" | "google" | "openai" | "custom" | "mock" | "auto";
-
 export interface ChatMessage {
-  role: "system" | "user" | "assistant" | "tool";
+  role: "user" | "assistant";
   content: string;
-  name?: string;
-  tool_call_id?: string;
-  tool_calls?: ToolCallPayload[];
 }
 
-export interface ToolCallPayload {
-  id: string;
-  type: "function";
-  function: {
-    name: string;
-    arguments: string; // JSON string
-  };
+export interface ToolParameter {
+  type: "string" | "number" | "boolean";
+  description: string;
+  enum?: string[];
 }
 
 export interface ToolDefinition {
@@ -22,34 +14,20 @@ export interface ToolDefinition {
   description: string;
   parameters: {
     type: "object";
-    properties: Record<string, {
-      type: string;
-      description: string;
-      enum?: string[];
-    }>;
+    properties: Record<string, ToolParameter>;
     required?: string[];
   };
-}
-
-export interface LlmConfig {
-  provider: LlmProviderType;
-  apiKey: string;
-  model: string;
-  baseUrl?: string;
 }
 
 export interface ToolExecutionSummary {
   name: string;
   label: string;
-  args?: any;
+  args?: Record<string, unknown>;
   resultSummary?: string;
 }
 
 export interface AgentResponse {
-  message: {
-    role: "assistant";
-    content: string;
-  };
+  message: { role: "assistant"; content: string };
   toolsCalled: ToolExecutionSummary[];
   provider: string;
   model: string;

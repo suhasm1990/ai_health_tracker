@@ -1,16 +1,10 @@
-import { NextResponse } from "next/server";
-import { getPairedDevices } from "@/lib/googleHealthApi";
-
-export const dynamic = "force-dynamic";
+import { getPairedDevices } from "@/lib/health";
+import { errorResponse, flag, json } from "@/lib/http";
 
 export async function GET(request: Request) {
   try {
-    const url = new URL(request.url);
-    const forceRefresh = url.searchParams.get("refresh") === "true";
-    const devices = await getPairedDevices(forceRefresh);
-    console.log("[DEVICE DISCOVERY]", JSON.stringify(devices.map(d => ({ name: d.displayName, model: d.model, type: d.deviceType, lastSync: d.lastSyncTime }))));
-    return NextResponse.json({ devices });
-  } catch (err: any) {
-    return NextResponse.json({ error: err.message || "Failed to fetch paired devices" }, { status: 500 });
+    return json({ devices: await getPairedDevices(flag(new URL(request.url), "refresh")) });
+  } catch (err) {
+    return errorResponse(err, "Failed to fetch paired devices");
   }
 }

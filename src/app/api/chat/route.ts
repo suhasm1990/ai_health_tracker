@@ -1,49 +1,30 @@
-import { NextRequest, NextResponse } from "next/server";
-import { runHealthAgent, resolveLlmConfig } from "@/lib/llm/agent";
-import { ChatMessage } from "@/lib/llm/types";
+import { errorResponse, json } from "@/lib/http";
+import { runHealthAgent } from "@/lib/llm/agent";
+import type { ChatMessage } from "@/lib/llm/types";
 
-export const dynamic = "force-dynamic";
+const MAX_MESSAGES = 40;
+const MAX_CONTENT_CHARS = 4000;
 
-export async function POST(req: NextRequest) {
-  try {
-    const body = await req.json();
-    const { messages, config } = body;
-
-    if (!messages || !Array.isArray(messages) || messages.length === 0) {
-      return NextResponse.json(
-        { error: "Missing or invalid 'messages' array in request body" },
-        { status: 400 }
-      );
-    }
-
-    const cleanMessages: ChatMessage[] = messages.map((m: any) => ({
-      role: m.role || "user",
-      content: String(m.content || ""),
-    }));
-
-    const response = await runHealthAgent(cleanMessages, config);
-
-    return NextResponse.json(response);
-  } catch (error: any) {
-    console.error("API /api/chat error:", error);
-    return NextResponse.json(
-      { error: error.message || "Failed to process chat message" },
-      { status: 500 }
-    );
+/** Accepts only user/assistant turns with string content; provider configuration is never taken from the client. */
+function parseMessages(input: unknown): ChatMessage[] | null {
+  if (!Array.isArray(input) || input.length === 0 || input.length > MAX_MESSAGES) return null;
+  const messages: ChatMessage[] = [];
+  for (const m of input) {
+    const role = m?.role === "assistant" ? "assistant" : m?.role === "user" ? "user" : null;
+    if (!role || typeof m.content !== "string") return null;
+    messages.push({ role, content: m.content.slice(0, MAX_CONTENT_CHARS) });
   }
+  return messages;
 }
 
-export async function GET() {
-  const config = resolveLlmConfig();
-  return NextResponse.json({
-    provider: config.provider,
-    model: config.model,
-    hasApiKey: Boolean(config.apiKey),
-    configuredVia: config.apiKey ? "Configured" : "Default Sandbox Advisor",
-    supportedProviders: [
-      { id: "nvidia", name: "NVIDIA NIM", defaultModel: "meta/llama-3.3-70b-instruct" },
-      { id: "google", name: "Google Gemini", defaultModel: "gemini-2.5-flash" },
-      { id: "openai", name: "OpenAI / Compatible", defaultModel: "gpt-4o-mini" },
-    ],
-  });
+export async function POST(request: Request) {
+  const body = await request.json().catch(() => null);
+  const messages = parseMessages(body?.messages);
+  if (!messages) return json({ error: "Body must contain a non-empty 'messages' array of user/assistant turns" }, 400);
+
+  try {
+    return json(await runHealthAgent(messages));
+  } catch (err) {
+    return errorResponse(err, "Failed to process chat message");
+  }
 }

@@ -1,77 +1,67 @@
 /**
- * In-memory cache with TTL and in-flight request deduplication.
- * Prevents redundant external Google Health API calls and collapses concurrent requests.
+ * Process-local TTL cache with in-flight request de-duplication.
+ * Keys are namespaced per user by the caller; entries are evicted lazily and
+ * the map is capped so long-running processes cannot grow without bound.
  */
 
-interface CacheItem<T> {
-  data: T;
-  timestamp: number;
+interface Entry {
+  value: unknown;
+  expiresAt: number;
 }
 
-const memoryCache = new Map<string, CacheItem<any>>();
-const inFlightRequests = new Map<string, Promise<any>>();
+const MAX_ENTRIES = 500;
+const store = new Map<string, Entry>();
+const inFlight = new Map<string, Promise<unknown>>();
 
-export function getCached<T>(key: string, ttlMs: number): T | null {
-  const item = memoryCache.get(key);
-  if (!item) return null;
-  if (Date.now() - item.timestamp > ttlMs) {
-    memoryCache.delete(key);
-    return null;
+export function getCached<T>(key: string): T | undefined {
+  const entry = store.get(key);
+  if (!entry) return undefined;
+  if (entry.expiresAt <= Date.now()) {
+    store.delete(key);
+    return undefined;
   }
-  return item.data as T;
+  return entry.value as T;
 }
 
-export function setCached<T>(key: string, data: T): void {
-  memoryCache.set(key, { data, timestamp: Date.now() });
+export function setCached<T>(key: string, value: T, ttlMs: number): void {
+  if (store.size >= MAX_ENTRIES) evict();
+  store.set(key, { value, expiresAt: Date.now() + ttlMs });
 }
 
-export function invalidateCache(keyPrefix?: string): void {
-  if (!keyPrefix) {
-    memoryCache.clear();
-    inFlightRequests.clear();
-    return;
-  }
-  for (const key of Array.from(memoryCache.keys())) {
-    if (key.startsWith(keyPrefix)) {
-      memoryCache.delete(key);
-    }
-  }
-  for (const key of Array.from(inFlightRequests.keys())) {
-    if (key.startsWith(keyPrefix)) {
-      inFlightRequests.delete(key);
-    }
+export function invalidateCache(prefix?: string): void {
+  for (const map of [store, inFlight]) {
+    if (!prefix) map.clear();
+    else for (const key of map.keys()) if (key.startsWith(prefix)) map.delete(key);
   }
 }
 
-export async function fetchWithCache<T>(
+/** Returns the cached value, joins an identical in-flight request, or runs `fetcher`. */
+export function cached<T>(
   key: string,
   ttlMs: number,
-  forceRefresh: boolean,
-  fetchFn: () => Promise<T>
+  fetcher: () => Promise<T>,
+  { force = false } = {}
 ): Promise<T> {
-  if (!forceRefresh) {
-    const cached = getCached<T>(key, ttlMs);
-    if (cached !== null) {
-      return cached;
-    }
-    // Return in-flight promise if another request is already fetching this key
-    const inFlight = inFlightRequests.get(key);
-    if (inFlight) {
-      return inFlight as Promise<T>;
-    }
+  if (!force) {
+    const hit = getCached<T>(key);
+    if (hit !== undefined) return Promise.resolve(hit);
+    const pending = inFlight.get(key);
+    if (pending) return pending as Promise<T>;
   }
-
-  const promise = fetchFn()
-    .then((data) => {
-      setCached(key, data);
-      inFlightRequests.delete(key);
-      return data;
+  const promise = fetcher()
+    .then((value) => {
+      setCached(key, value, ttlMs);
+      return value;
     })
-    .catch((err) => {
-      inFlightRequests.delete(key);
-      throw err;
-    });
-
-  inFlightRequests.set(key, promise);
+    .finally(() => inFlight.delete(key));
+  inFlight.set(key, promise);
   return promise;
+}
+
+function evict(): void {
+  const now = Date.now();
+  for (const [key, entry] of store) if (entry.expiresAt <= now) store.delete(key);
+  // Still full: drop the oldest insertions (Map preserves insertion order).
+  const overflow = store.size - MAX_ENTRIES + 1;
+  if (overflow > 0) for (const key of Array.from(store.keys()).slice(0, overflow)) store.delete(key);
 }

@@ -1,17 +1,15 @@
-import { NextResponse } from "next/server";
-import { executeRawApiCall } from "@/lib/googleHealthApi";
+import { executeRawApiCall } from "@/lib/health";
+import { errorResponse, json } from "@/lib/http";
 
+/** API Explorer proxy: forwards a request to Google Health and mirrors the upstream status code. */
 export async function POST(request: Request) {
+  const body = await request.json().catch(() => null);
+  if (typeof body?.endpoint !== "string" || !body.endpoint.trim()) return json({ error: "Endpoint parameter is required" }, 400);
+
   try {
-    const { endpoint, method = "GET", body } = await request.json();
-
-    if (!endpoint) {
-      return NextResponse.json({ error: "Endpoint parameter is required" }, { status: 400 });
-    }
-
-    const result = await executeRawApiCall(endpoint, method, body);
-    return NextResponse.json(result);
-  } catch (err: any) {
-    return NextResponse.json({ error: err.message || "Execution error" }, { status: 500 });
+    const result = await executeRawApiCall(body.endpoint.trim(), typeof body.method === "string" ? body.method : "GET", body.body);
+    return json(result.data, result.status);
+  } catch (err) {
+    return errorResponse(err, "Execution error");
   }
 }

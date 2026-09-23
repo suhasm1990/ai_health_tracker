@@ -1,19 +1,16 @@
-import { NextResponse } from "next/server";
-import { getAllHealthMetrics } from "@/lib/googleHealthApi";
-
-export const dynamic = "force-dynamic";
+import { getAllHealthMetrics } from "@/lib/health";
+import { errorResponse, flag, json } from "@/lib/http";
 
 export async function GET(request: Request) {
+  const url = new URL(request.url);
   try {
-    const url = new URL(request.url);
-    const deviceId = url.searchParams.get("deviceId") || undefined;
-    const forceRefresh = url.searchParams.get("refresh") === "true";
-    const clientDate = url.searchParams.get("clientDate") || undefined;
-    const clientTz = url.searchParams.get("tz") || undefined;
-
-    const payload = await getAllHealthMetrics(deviceId, forceRefresh, clientDate, clientTz);
-    return NextResponse.json(payload);
-  } catch (err: any) {
-    return NextResponse.json({ error: err.message || "Failed to fetch health metrics" }, { status: 500 });
+    const payload = await getAllHealthMetrics({
+      forceRefresh: flag(url, "refresh"),
+      clientDate: url.searchParams.get("clientDate") ?? undefined,
+      clientTz: url.searchParams.get("tz") ?? undefined,
+    });
+    return json(payload);
+  } catch (err) {
+    return errorResponse(err, "Failed to fetch health metrics");
   }
 }

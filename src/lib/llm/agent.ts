@@ -1,9 +1,11 @@
-import { ChatMessage, LlmConfig, AgentResponse, LlmProviderType } from "./types";
-import { runOpenAICompatibleAgent } from "./providers/openaiCompatible";
-import { runGeminiAgent } from "./providers/gemini";
-import { runMockAdvisor } from "./providers/mockAdvisor";
+import { PROVIDER_LABELS, resolveLlmConfig } from "./config";
+import { runToolLoop, type AgentRun } from "./loop";
+import { geminiAdapter } from "./providers/gemini";
+import { runMockAdvisor } from "./providers/mock";
+import { openAiAdapter } from "./providers/openai";
+import type { AgentResponse, ChatMessage } from "./types";
 
-const CLINICAL_WELLNESS_SYSTEM_PROMPT = `You are an AI Personal Health Coach for AI Health Tracker (Powered by Google Health API).
+const SYSTEM_PROMPT = `You are an AI Personal Health Coach for AI Health Tracker (Powered by Google Health API).
 
 CRITICAL FORMATTING & BREVITY RULES:
 1. BE COMPACT & CONCISE: The user explicitly requires short, compact, high-value responses. NEVER output long essays, generic boilerplate, or walls of text.
@@ -13,143 +15,38 @@ CRITICAL FORMATTING & BREVITY RULES:
 5. NO FLUFF: Skip conversational filler ("Hello! I would be glad to help..."). Keep any medical disclaimer to at most 1 short line only when diagnostic advice is touched.
 
 TOOL CALLING:
-- NEVER invent or guess metrics. ALWAYS use your provided tools:
+- NEVER invent or guess metrics. If a tool returns null for a value, say it was not recorded. ALWAYS use your provided tools:
   - Today's summary, steps, calories, active minutes, weight, SpO2 -> 'get_today_health_summary'
   - Sleep quality, duration, score, sleep stages -> 'get_sleep_analysis'
   - Heart rate, resting HR, cardio zones -> 'get_heart_rate_insights'
   - Weekly trends, 7-day averages -> 'get_weekly_trends'
   - Connected devices, battery status -> 'get_connected_devices'`;
 
-export function resolveLlmConfig(override?: Partial<LlmConfig>): LlmConfig {
-  // 1. Explicit override from request
-  if (override?.apiKey) {
-    return {
-      provider: override.provider || "auto",
-      apiKey: override.apiKey,
-      model: override.model || "meta/llama-3.3-70b-instruct",
-      baseUrl: override.baseUrl,
-    };
-  }
+const MOCK_MODEL = "google-health-agent";
 
-  // 2. Environment variables: NVIDIA NIM
-  if (process.env.NVIDIA_API_KEY) {
-    return {
-      provider: "nvidia",
-      apiKey: process.env.NVIDIA_API_KEY,
-      model: process.env.NVIDIA_MODEL || "meta/llama-3.3-70b-instruct",
-      baseUrl: process.env.NVIDIA_BASE_URL || "https://integrate.api.nvidia.com/v1/chat/completions",
-    };
-  }
+const toResponse = (run: AgentRun, provider: string, model: string): AgentResponse => ({
+  message: { role: "assistant", content: run.text },
+  toolsCalled: run.toolsCalled,
+  provider,
+  model,
+});
 
-  // 4. Environment variables: Google Gemini
-  if (process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY) {
-    const key = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || "";
-    return {
-      provider: "google",
-      apiKey: key,
-      model: process.env.GEMINI_MODEL || process.env.GOOGLE_MODEL || "gemini-2.5-flash",
-    };
-  }
-
-  // 5. Environment variables: Generic LLM_API_KEY
-  if (process.env.LLM_API_KEY) {
-    const prov = (process.env.LLM_PROVIDER as LlmProviderType) || "nvidia";
-    return {
-      provider: prov,
-      apiKey: process.env.LLM_API_KEY,
-      model: process.env.LLM_MODEL || "meta/llama-3.3-70b-instruct",
-      baseUrl: process.env.LLM_BASE_URL,
-    };
-  }
-
-  // 6. Environment variables: OpenAI
-  if (process.env.OPENAI_API_KEY) {
-    return {
-      provider: "openai",
-      apiKey: process.env.OPENAI_API_KEY,
-      model: process.env.OPENAI_MODEL || "gpt-4o-mini",
-    };
-  }
-
-  // 7. Fallback to mock advisor
-  return {
-    provider: "mock",
-    apiKey: "",
-    model: "sandbox-advisor",
-  };
-}
-
-export async function runHealthAgent(
-  messages: ChatMessage[],
-  configOverride?: Partial<LlmConfig>
-): Promise<AgentResponse> {
-  const config = resolveLlmConfig(configOverride);
-
-  // If no API key is available, use the intelligent fallback advisor
-  if (config.provider === "mock" || !config.apiKey) {
-    const mockResult = await runMockAdvisor(messages);
-    return {
-      message: {
-        role: "assistant",
-        content: mockResult.text,
-      },
-      toolsCalled: mockResult.toolsCalled,
-      provider: "Sandbox Health Advisor",
-      model: "google-health-agent",
-    };
-  }
-
-  // Auto-detect provider if needed
-  let effectiveProvider = config.provider;
-  if (effectiveProvider === "auto") {
-    if (config.apiKey.startsWith("nvapi-")) {
-      effectiveProvider = "nvidia";
-    } else if (config.apiKey.startsWith("AIzaSy")) {
-      effectiveProvider = "google";
-    } else if (config.apiKey.startsWith("sk-")) {
-      effectiveProvider = "openai";
-    } else {
-      effectiveProvider = "nvidia";
-    }
-  }
+/** Answers with the configured provider, falling back to the offline advisor on any provider failure. */
+export async function runHealthAgent(messages: ChatMessage[]): Promise<AgentResponse> {
+  const config = resolveLlmConfig();
+  if (!config.apiKey) return toResponse(await runMockAdvisor(messages), PROVIDER_LABELS.mock, MOCK_MODEL);
 
   try {
-    if (effectiveProvider === "google") {
-      const result = await runGeminiAgent(messages, config, CLINICAL_WELLNESS_SYSTEM_PROMPT);
-      return {
-        message: {
-          role: "assistant",
-          content: result.text,
-        },
-        toolsCalled: result.toolsCalled,
-        provider: "Google Gemini",
-        model: config.model,
-      };
-    } else {
-      // NVIDIA NIM, OpenAI, or custom OpenAI-compatible
-      const result = await runOpenAICompatibleAgent(messages, config, CLINICAL_WELLNESS_SYSTEM_PROMPT);
-      const providerLabel = effectiveProvider === "nvidia" ? "NVIDIA NIM" : effectiveProvider === "openai" ? "OpenAI" : "LLM";
-      return {
-        message: {
-          role: "assistant",
-          content: result.text,
-        },
-        toolsCalled: result.toolsCalled,
-        provider: providerLabel,
-        model: config.model,
-      };
-    }
-  } catch (err: any) {
-    console.error("Agent execution error, falling back to mock advisor:", err);
+    const adapter = config.provider === "google" ? geminiAdapter(messages, config, SYSTEM_PROMPT) : openAiAdapter(messages, config, SYSTEM_PROMPT);
+    return toResponse(await runToolLoop(adapter), PROVIDER_LABELS[config.provider] ?? "LLM", config.model);
+  } catch (err) {
+    console.error("Agent execution error, falling back to offline advisor:", err);
     const fallback = await runMockAdvisor(messages);
-    return {
-      message: {
-        role: "assistant",
-        content: `> ⚠️ **Provider Notice**: Reverted to Local Advisor because ${effectiveProvider} call failed: *${err.message || "Unknown error"}*.\n\n${fallback.text}`,
-      },
-      toolsCalled: fallback.toolsCalled,
-      provider: "Local Health Advisor (Fallback)",
-      model: "google-health-agent",
-    };
+    const reason = err instanceof Error ? err.message : "Unknown error";
+    return toResponse(
+      { ...fallback, text: `> ⚠️ **Provider Notice**: Reverted to the local advisor because the ${config.provider} call failed: *${reason}*.\n\n${fallback.text}` },
+      "Local Health Advisor (Fallback)",
+      MOCK_MODEL
+    );
   }
 }

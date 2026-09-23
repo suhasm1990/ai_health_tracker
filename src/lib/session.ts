@@ -1,13 +1,16 @@
 import crypto from "crypto";
 import { cookies } from "next/headers";
-import { NextResponse } from "next/server";
+import type { NextResponse } from "next/server";
 
-export const SESSION_COOKIE_NAME = "gh_session";
-
+/**
+ * Encrypted, HTTP-only session cookie (AES-256-GCM, HKDF-derived key).
+ * Field names mirror Google's OAuth token response so callback mapping stays 1:1.
+ */
 export interface UserSession {
   access_token?: string;
   refresh_token?: string;
-  expires_at?: number; // epoch ms
+  /** epoch ms */
+  expires_at?: number;
   scopes?: string[];
   is_demo_mode?: boolean;
   user?: {
@@ -18,143 +21,78 @@ export interface UserSession {
   };
 }
 
-// Derive a high-entropy 32-byte key for AES-256-GCM using HKDF (RFC 5869)
+export const SESSION_COOKIE = "gh_session";
+const SESSION_MAX_AGE = 60 * 60 * 24 * 30; // 30 days
+
+export const cookieOptions = (maxAge: number) => ({
+  httpOnly: true,
+  secure: process.env.NODE_ENV === "production",
+  sameSite: "lax" as const,
+  path: "/",
+  maxAge,
+});
+
+let encryptionKey: Buffer | undefined;
+
 function getEncryptionKey(): Buffer {
-  const secret =
-    process.env.SESSION_SECRET ||
-    process.env.GOOGLE_CLIENT_SECRET;
-
-  if (!secret) {
-    if (process.env.NODE_ENV === "production") {
-      throw new Error(
-        "CRITICAL SECURITY CONFIGURATION ERROR: SESSION_SECRET or GOOGLE_CLIENT_SECRET must be set in production to encrypt session cookies."
-      );
-    }
-    // Development-only deterministic secret fallback
-    return Buffer.from(
-      crypto.hkdfSync(
-        "sha256",
-        "google-health-dev-local-secret-key-salt-2026",
-        "health-app-salt",
-        "session-encryption-key",
-        32
-      )
-    );
+  if (encryptionKey) return encryptionKey;
+  const secret = process.env.SESSION_SECRET || process.env.GOOGLE_CLIENT_SECRET;
+  if (!secret && process.env.NODE_ENV === "production") {
+    throw new Error("SESSION_SECRET (or GOOGLE_CLIENT_SECRET) must be set in production to encrypt session cookies.");
   }
-
-  return Buffer.from(
-    crypto.hkdfSync("sha256", secret, "google-health-salt", "session-encryption-key", 32)
+  encryptionKey = Buffer.from(
+    crypto.hkdfSync("sha256", secret || "google-health-dev-local-secret", "google-health-salt", "session-encryption-key", 32)
   );
+  return encryptionKey;
 }
 
-/**
- * Encrypts a session object into a compact, tamper-proof AES-256-GCM string.
- */
 export function encryptSession(session: UserSession): string {
-  const key = getEncryptionKey();
-  const iv = crypto.randomBytes(12); // Standard 12-byte IV for GCM
-  const cipher = crypto.createCipheriv("aes-256-gcm", key, iv);
-
-  const jsonStr = JSON.stringify(session);
-  let encrypted = cipher.update(jsonStr, "utf8", "base64url");
-  encrypted += cipher.final("base64url");
-
-  const authTag = cipher.getAuthTag().toString("base64url");
-  const ivStr = iv.toString("base64url");
-
-  return `${ivStr}.${authTag}.${encrypted}`;
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv("aes-256-gcm", getEncryptionKey(), iv);
+  const ciphertext = Buffer.concat([cipher.update(JSON.stringify(session), "utf8"), cipher.final()]);
+  return [iv, cipher.getAuthTag(), ciphertext].map((b) => b.toString("base64url")).join(".");
 }
 
-/**
- * Decrypts and verifies an AES-256-GCM session string.
- * Returns null if the token is invalid, expired, or tampered with.
- */
-export function decryptSession(encryptedStr: string): UserSession | null {
-  if (!encryptedStr || typeof encryptedStr !== "string") return null;
-
+/** Returns null for missing, malformed or tampered tokens. */
+export function decryptSession(token: string | undefined): UserSession | null {
+  if (!token) return null;
   try {
-    const parts = encryptedStr.split(".");
-    if (parts.length !== 3) return null;
-
-    const [ivStr, authTagStr, ciphertext] = parts;
-    const key = getEncryptionKey();
-    const iv = Buffer.from(ivStr, "base64url");
-    const authTag = Buffer.from(authTagStr, "base64url");
-
-    if (iv.length !== 12 || authTag.length !== 16) return null;
-
-    const decipher = crypto.createDecipheriv("aes-256-gcm", key, iv);
-    decipher.setAuthTag(authTag);
-
-    let decrypted = decipher.update(ciphertext, "base64url", "utf8");
-    decrypted += decipher.final("utf8");
-
-    return JSON.parse(decrypted) as UserSession;
+    const [iv, tag, ciphertext] = token.split(".").map((part) => Buffer.from(part, "base64url"));
+    if (iv?.length !== 12 || tag?.length !== 16 || !ciphertext) return null;
+    const decipher = crypto.createDecipheriv("aes-256-gcm", getEncryptionKey(), iv);
+    decipher.setAuthTag(tag);
+    const plain = Buffer.concat([decipher.update(ciphertext), decipher.final()]).toString("utf8");
+    return JSON.parse(plain) as UserSession;
   } catch {
     return null;
   }
 }
 
-/**
- * Reads and decrypts the session cookie from incoming request headers.
- */
+/** Reads the session from the incoming request; null outside a request context. */
 export async function getSession(): Promise<UserSession | null> {
   try {
-    const cookieStore = await cookies();
-    const cookieVal = cookieStore.get(SESSION_COOKIE_NAME)?.value;
-    if (!cookieVal) return null;
-    return decryptSession(cookieVal);
+    return decryptSession((await cookies()).get(SESSION_COOKIE)?.value);
   } catch {
     return null;
   }
 }
 
-/**
- * Updates the user's encrypted session cookie in a Route Handler or Server Action context.
- */
-export async function updateSession(updatedFields: Partial<UserSession>): Promise<boolean> {
+/** Merges fields into the current session cookie. Only works in Route Handlers / Server Actions. */
+export async function updateSession(fields: Partial<UserSession>): Promise<boolean> {
   try {
     const session = await getSession();
     if (!session) return false;
-    const updated: UserSession = { ...session, ...updatedFields };
-    const cookieStore = await cookies();
-    const encrypted = encryptSession(updated);
-    cookieStore.set(SESSION_COOKIE_NAME, encrypted, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "lax",
-      path: "/",
-      maxAge: 60 * 60 * 24 * 30, // 30 days
-    });
+    (await cookies()).set(SESSION_COOKIE, encryptSession({ ...session, ...fields }), cookieOptions(SESSION_MAX_AGE));
     return true;
   } catch {
     return false;
   }
 }
 
-/**
- * Writes an encrypted session cookie onto an outgoing Next.js response.
- */
 export function setSessionCookie(res: NextResponse, session: UserSession): void {
-  const encrypted = encryptSession(session);
-  res.cookies.set(SESSION_COOKIE_NAME, encrypted, {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "lax",
-    path: "/",
-    maxAge: 60 * 60 * 24 * 30, // 30 days persistence
-  });
+  res.cookies.set(SESSION_COOKIE, encryptSession(session), cookieOptions(SESSION_MAX_AGE));
 }
 
-/**
- * Clears the session cookie on an outgoing Next.js response.
- */
 export function clearSessionCookie(res: NextResponse): void {
-  res.cookies.set(SESSION_COOKIE_NAME, "", {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "lax",
-    path: "/",
-    maxAge: 0,
-  });
+  res.cookies.set(SESSION_COOKIE, "", cookieOptions(0));
 }

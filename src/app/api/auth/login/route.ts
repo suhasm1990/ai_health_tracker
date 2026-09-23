@@ -1,50 +1,29 @@
 import crypto from "crypto";
 import { NextResponse } from "next/server";
-import { getCredentials } from "@/lib/tokens";
+import { OAUTH_SCOPES, getCredentials, setOAuthStateCookie } from "@/lib/auth";
+import { json } from "@/lib/http";
 
-export async function GET(request: Request) {
+const AUTH_ENDPOINT = "https://accounts.google.com/o/oauth2/v2/auth";
+
+export async function GET() {
   const { clientId, redirectUri } = getCredentials();
+  if (!clientId) return json({ error: "Google Client ID is missing. Configure GOOGLE_CLIENT_ID in .env.local." }, 400);
 
-  if (!clientId) {
-    return NextResponse.json(
-      {
-        error: "Google Client ID is missing. Please configure GOOGLE_CLIENT_ID in .env.local or in App Settings.",
-      },
-      { status: 400 }
-    );
-  }
-
-  const scopes = [
-    "openid",
-    "https://www.googleapis.com/auth/userinfo.email",
-    "https://www.googleapis.com/auth/userinfo.profile",
-    "https://www.googleapis.com/auth/googlehealth.activity_and_fitness.readonly",
-    "https://www.googleapis.com/auth/googlehealth.health_metrics_and_measurements.readonly",
-    "https://www.googleapis.com/auth/googlehealth.sleep.readonly",
-    "https://www.googleapis.com/auth/googlehealth.nutrition.readonly",
-    "https://www.googleapis.com/auth/googlehealth.settings.readonly",
-  ];
-
-  // Cryptographically secure state parameter to prevent OAuth CSRF / session fixation attacks (RFC 6749 Section 10.12)
+  // Random state binds the callback to this browser (OAuth CSRF protection, RFC 6749 §10.12).
   const state = crypto.randomBytes(32).toString("hex");
+  const url = new URL(AUTH_ENDPOINT);
+  const params = {
+    client_id: clientId,
+    redirect_uri: redirectUri,
+    response_type: "code",
+    access_type: "offline",
+    prompt: "select_account consent",
+    scope: OAUTH_SCOPES.join(" "),
+    state,
+  };
+  for (const [key, value] of Object.entries(params)) url.searchParams.set(key, value);
 
-  const authUrl = new URL("https://accounts.google.com/o/oauth2/v2/auth");
-  authUrl.searchParams.set("client_id", clientId);
-  authUrl.searchParams.set("redirect_uri", redirectUri);
-  authUrl.searchParams.set("response_type", "code");
-  authUrl.searchParams.set("access_type", "offline");
-  authUrl.searchParams.set("prompt", "select_account consent");
-  authUrl.searchParams.set("scope", scopes.join(" "));
-  authUrl.searchParams.set("state", state);
-
-  const response = NextResponse.redirect(authUrl.toString());
-  response.cookies.set("oauth_state", state, {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "lax",
-    path: "/",
-    maxAge: 60 * 10, // 10 minutes expiry
-  });
-
-  return response;
+  const res = NextResponse.redirect(url);
+  setOAuthStateCookie(res, state);
+  return res;
 }
