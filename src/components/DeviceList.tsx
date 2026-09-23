@@ -39,21 +39,44 @@ function batteryLabel(device: PairedDevice): { text: string; title: string; low:
 const firmwareLabel = (d: PairedDevice) =>
   /sync|connected/i.test(d.firmwareVersion ?? "") ? d.firmwareVersion : `v${d.firmwareVersion || d.hardwareVersion}`;
 
+/** Battery readout, last-sync age and the sync action; every piece is no-wrap so the row stays on one line. */
+function DeviceStatus({ device, onSync, isSyncing }: { device: PairedDevice; onSync: () => void; isSyncing: boolean }) {
+  const battery = batteryLabel(device);
+  return (
+    <div className="flex items-center gap-2 shrink-0 text-xs text-slate-500 dark:text-slate-400">
+      <span className="flex items-center gap-1 whitespace-nowrap" title={battery.title}>
+        <BatteryIcon device={device} />
+        <span className={`font-mono font-semibold capitalize ${battery.low ? "text-amber-500 dark:text-amber-400" : "text-slate-700 dark:text-slate-300"}`}>{battery.text}</span>
+      </span>
+      <span className="whitespace-nowrap text-[11px]" title={`Last synced: ${device.lastSyncTime}`} suppressHydrationWarning>
+        {formatRelativeTime(device.lastSyncTime)}
+      </span>
+      <button onClick={onSync} disabled={isSyncing} title="Request device sync" aria-label={`Sync ${device.displayName}`} className="p-1 hover:text-emerald-500 dark:hover:text-emerald-400 text-slate-400 dark:text-slate-500 transition-colors">
+        <RefreshCw className={`w-3 h-3 ${isSyncing ? "animate-spin text-emerald-500 dark:text-emerald-400" : ""}`} />
+      </button>
+    </div>
+  );
+}
+
 export function DeviceList({ devices, onSync, isSyncing, isDemo, onTryDemo }: DeviceListProps) {
   const count = devices.length;
   return (
     <section className="bg-white/80 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 sm:p-5 shadow-xs transition-colors duration-200">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-4">
-        <div>
-          <div className="flex items-center space-x-2">
-            <h2 className="text-base font-semibold text-slate-900 dark:text-white">Connected Devices & Data Sources</h2>
-            <span className="text-xs px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-500/20 font-medium">
-              {count} Contributing {count === 1 ? "Source" : "Sources"}
+      <div className="flex items-center justify-between gap-2 mb-3 sm:mb-4">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2 min-w-0">
+            <h2 className="text-sm sm:text-base font-semibold text-slate-900 dark:text-white truncate">
+              <span className="sm:hidden">Devices & Sources</span>
+              <span className="hidden sm:inline">Connected Devices & Data Sources</span>
+            </h2>
+            <span className="shrink-0 whitespace-nowrap text-xs px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-500/20 font-medium">
+              {count} <span className="hidden sm:inline">Contributing </span>
+              {count === 1 ? "Source" : "Sources"}
             </span>
           </div>
-          <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">Auto-detected wearables & synced telemetry platforms contributing to your unified metrics</p>
+          <p className="hidden sm:block text-xs text-slate-500 dark:text-slate-400 mt-0.5">Auto-detected wearables & synced telemetry platforms contributing to your unified metrics</p>
         </div>
-        <span className="inline-flex items-center space-x-1.5 text-xs text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-800/60 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700/60 self-start">
+        <span className="hidden sm:inline-flex shrink-0 items-center space-x-1.5 text-xs text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-800/60 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700/60">
           <Layers className="w-3.5 h-3.5 text-emerald-500" />
           <span className="font-medium text-slate-700 dark:text-slate-300">All Sources Reconciled</span>
         </span>
@@ -73,39 +96,32 @@ export function DeviceList({ devices, onSync, isSyncing, isDemo, onTryDemo }: De
           )}
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 sm:gap-3">
           {devices.map((device) => {
             const { icon: Icon, className } = DEVICE_ICONS[device.iconType] ?? DEVICE_ICONS.band;
-            const battery = batteryLabel(device);
             return (
-              <div key={device.id} className="rounded-xl p-3.5 border bg-slate-50/70 dark:bg-slate-800/40 border-slate-200 dark:border-slate-700/60 hover:border-slate-300 dark:hover:border-slate-600 transition-all">
-                <div className="flex items-start space-x-3">
-                  <div className="p-2.5 rounded-xl bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-700/80 shadow-xs shrink-0">
-                    <Icon className={`w-5 h-5 ${className}`} />
+              // Phone: one compact row per device. Tablet and up: a card with a status footer.
+              <div key={device.id} className="rounded-xl p-2.5 sm:p-3.5 border bg-slate-50/70 dark:bg-slate-800/40 border-slate-200 dark:border-slate-700/60 hover:border-slate-300 dark:hover:border-slate-600 transition-all flex items-center gap-3 sm:block">
+                <div className="flex items-center sm:items-start gap-3 flex-1 min-w-0">
+                  <div className="p-2 sm:p-2.5 rounded-xl bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-700/80 shadow-xs shrink-0">
+                    <Icon className={`w-4 h-4 sm:w-5 sm:h-5 ${className}`} />
                   </div>
                   <div className="flex-1 min-w-0">
-                    <h3 className="text-sm font-semibold text-slate-900 dark:text-white truncate">{device.displayName}</h3>
-                    <p className="text-xs text-slate-500 dark:text-slate-400 truncate">{device.model}</p>
+                    <h3 className="text-xs sm:text-sm font-semibold text-slate-900 dark:text-white truncate">{device.displayName}</h3>
+                    <p className="text-[11px] sm:text-xs text-slate-500 dark:text-slate-400 truncate">{device.model}</p>
                   </div>
                 </div>
 
-                <div className="mt-3 pt-3 border-t border-slate-200 dark:border-slate-700/40 flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
-                  <div className="flex items-center space-x-1.5" title={battery.title}>
-                    <BatteryIcon device={device} />
-                    <span className={`font-mono text-xs font-semibold capitalize ${battery.low ? "text-amber-500 dark:text-amber-400" : "text-slate-700 dark:text-slate-300"}`}>{battery.text}</span>
+                <div className="sm:hidden">
+                  <DeviceStatus device={device} onSync={onSync} isSyncing={isSyncing} />
+                </div>
+
+                <div className="hidden sm:flex mt-3 pt-3 border-t border-slate-200 dark:border-slate-700/40 items-center justify-between gap-2">
+                  <div className="flex items-center gap-1 font-mono text-[11px] text-slate-500 dark:text-slate-400 min-w-0 truncate" title="Firmware or sync protocol">
+                    <Cpu className="w-3 h-3 text-slate-400 dark:text-slate-500 shrink-0" />
+                    <span className="truncate">{firmwareLabel(device)}</span>
                   </div>
-                  <div className="flex items-center space-x-1 font-mono text-[11px]" title="Firmware or sync protocol">
-                    <Cpu className="w-3 h-3 text-slate-400 dark:text-slate-500" />
-                    <span>{firmwareLabel(device)}</span>
-                  </div>
-                  <div className="flex items-center space-x-2">
-                    <span className="text-[11px]" title={`Last synced: ${device.lastSyncTime}`} suppressHydrationWarning>
-                      {formatRelativeTime(device.lastSyncTime)}
-                    </span>
-                    <button onClick={onSync} disabled={isSyncing} title="Request device sync" aria-label={`Sync ${device.displayName}`} className="p-1 hover:text-emerald-500 dark:hover:text-emerald-400 text-slate-400 dark:text-slate-500 transition-colors">
-                      <RefreshCw className={`w-3 h-3 ${isSyncing ? "animate-spin text-emerald-500 dark:text-emerald-400" : ""}`} />
-                    </button>
-                  </div>
+                  <DeviceStatus device={device} onSync={onSync} isSyncing={isSyncing} />
                 </div>
               </div>
             );

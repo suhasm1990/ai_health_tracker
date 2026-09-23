@@ -120,10 +120,10 @@ export function ChatAssistant({ ref, llm }: ChatAssistantProps) {
       <button
         onClick={() => setIsOpen(true)}
         aria-label="Open Health AI Assistant"
-        className="fixed bottom-6 right-6 z-40 flex items-center space-x-2.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white px-4 py-3 rounded-full shadow-xl shadow-emerald-900/30 hover:shadow-emerald-900/50 hover:scale-105 active:scale-95 transition-all duration-200"
+        className="fixed bottom-4 right-4 sm:bottom-6 sm:right-6 z-40 flex items-center sm:space-x-2.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white p-3.5 sm:px-4 sm:py-3 rounded-full shadow-xl shadow-emerald-900/30 hover:shadow-emerald-900/50 hover:scale-105 active:scale-95 transition-all duration-200"
       >
         <Sparkles className="w-5 h-5 text-emerald-100 shrink-0 animate-pulse" />
-        <span className="font-semibold text-sm tracking-tight pr-1">Ask Health AI</span>
+        <span className="hidden sm:inline font-semibold text-sm tracking-tight pr-1">Ask Health AI</span>
       </button>
     );
   }

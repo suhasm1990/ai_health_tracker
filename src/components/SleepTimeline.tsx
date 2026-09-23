@@ -115,7 +115,7 @@ export function SleepTimeline({ today, history }: SleepTimelineProps) {
         </div>
       </PanelHeader>
 
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-3 mb-4 text-xs">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-3 mb-3 sm:mb-4 text-xs">
         {view === "today" ? (
           <>
             <StatTile {...tileIcon} icon={Clock} iconClass="text-indigo-500 dark:text-indigo-400" label="Total Sleep Time" value={formatDuration(duration)} sub={today.sleepStartTime && today.sleepEndTime ? `${today.sleepStartTime} – ${today.sleepEndTime}` : `Target: ${formatDuration(GOALS.sleepMinutes)}`} />
@@ -142,8 +142,12 @@ export function SleepTimeline({ today, history }: SleepTimelineProps) {
           <>
             <div className="mb-4">
               <div className="flex justify-between text-xs text-slate-500 dark:text-slate-400 mb-2">
-                <span>Sleep Stage Distribution (Last Night)</span>
-                <span>100% of cycle ({formatDuration(duration)} total)</span>
+                <span>
+                  Sleep stages<span className="hidden sm:inline"> distribution (last night)</span>
+                </span>
+                <span>
+                  {formatDuration(duration)}<span className="hidden sm:inline"> total (100% of cycle)</span>
+                </span>
               </div>
               <div className="w-full h-4 rounded-full overflow-hidden flex bg-slate-200 dark:bg-slate-800 border border-slate-300 dark:border-slate-700/50">
                 {today.sleepStages.map((stage) => (
@@ -168,7 +172,7 @@ export function SleepTimeline({ today, history }: SleepTimelineProps) {
         )
       ) : (
         <div>
-          <div className="h-64 w-full mb-3">
+          <div className="h-52 sm:h-64 w-full mb-3">
             {nights.length === 0 ? (
               <ChartEmpty message="No sleep sessions recorded in the last 7 days." />
             ) : (

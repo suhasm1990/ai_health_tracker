@@ -51,13 +51,13 @@ export function StepChart({ intradaySteps, history, stepGoal }: StepChartProps) 
         <ViewToggle value={view} options={VIEWS} onChange={setView} />
       </PanelHeader>
 
-      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 sm:gap-4 mb-4 text-xs">
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 sm:gap-4 mb-3 sm:mb-4 text-xs">
         <StatTile label="Total Today" value={todayTotal.toLocaleString()} />
         <StatTile label="Peak Hour" value={`${peak.time} (${peak.steps.toLocaleString()})`} valueClass="text-emerald-600 dark:text-emerald-400" />
         <StatTile label="7-Day Daily Avg" value={weeklyAvg.toLocaleString()} valueClass="text-teal-600 dark:text-teal-400" className="col-span-2 sm:col-span-1" />
       </div>
 
-      <div className="h-64 w-full">
+      <div className="h-52 sm:h-64 w-full">
         {!hasData ? (
           <ChartEmpty message="No step data recorded yet today. Sync your device to see hourly activity." />
         ) : (

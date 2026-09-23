@@ -84,13 +84,13 @@ export function HeartRateChart({ intradayHeartRate, history, today }: HeartRateC
         <ViewToggle value={view} options={VIEWS} onChange={setView} activeClass="bg-rose-600" />
       </PanelHeader>
 
-      <div className="grid grid-cols-3 gap-2 sm:gap-4 mb-4 text-xs">
+      <div className="grid grid-cols-3 gap-2 sm:gap-4 mb-3 sm:mb-4 text-xs">
         {tiles.map((tile) => (
           <StatTile key={tile.label} {...tile} />
         ))}
       </div>
 
-      <div className="h-64 w-full">
+      <div className="h-52 sm:h-64 w-full">
         {!hasData ? (
           <ChartEmpty message="No heart rate readings synced for today yet." />
         ) : (

@@ -60,20 +60,20 @@ export function ReadinessScore({ today, history7Days }: ReadinessScoreProps) {
   });
 
   return (
-    <section className="relative overflow-hidden bg-white/80 dark:bg-slate-900/70 border border-slate-200/80 dark:border-slate-800 rounded-3xl p-5 sm:p-7 shadow-xs backdrop-blur-md transition-all duration-300">
+    <section className="relative overflow-hidden bg-white/80 dark:bg-slate-900/70 border border-slate-200/80 dark:border-slate-800 rounded-3xl p-4 sm:p-7 shadow-xs backdrop-blur-md transition-all duration-300">
       <div className={`absolute -top-24 -left-24 w-96 h-96 rounded-full bg-gradient-to-br ${styles.glow} blur-3xl pointer-events-none opacity-80 dark:opacity-50`} />
       <div className="absolute -bottom-24 -right-24 w-80 h-80 rounded-full bg-gradient-to-tl from-indigo-500/10 via-purple-500/5 to-transparent blur-3xl pointer-events-none" />
 
       <div className="relative z-10 flex flex-col lg:flex-row items-center justify-between gap-6 lg:gap-8">
-        <div className="flex-1 space-y-4 w-full">
+        <div className="flex-1 space-y-3 sm:space-y-4 w-full">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div className="flex items-center space-x-2.5">
               <div className="p-2 rounded-xl bg-gradient-to-tr from-emerald-500 to-teal-400 text-white shadow-md shadow-emerald-500/20">
                 <Sparkles className="w-5 h-5" />
               </div>
               <div>
-                <h2 className="text-lg font-bold text-slate-900 dark:text-white tracking-tight">Daily Readiness & Recovery</h2>
-                <p className="text-xs text-slate-500 dark:text-slate-400">Multivariate physiological recovery synthesis</p>
+                <h2 className="text-base sm:text-lg font-bold text-slate-900 dark:text-white tracking-tight">Daily Readiness & Recovery</h2>
+                <p className="hidden sm:block text-xs text-slate-500 dark:text-slate-400">Multivariate physiological recovery synthesis</p>
               </div>
             </div>
             <div className="flex items-center space-x-2">
@@ -90,7 +90,7 @@ export function ReadinessScore({ today, history7Days }: ReadinessScoreProps) {
             </div>
           </div>
 
-          <div className="bg-slate-50/80 dark:bg-slate-800/50 border border-slate-200/60 dark:border-slate-700/50 rounded-2xl p-4">
+          <div className="bg-slate-50/80 dark:bg-slate-800/50 border border-slate-200/60 dark:border-slate-700/50 rounded-2xl p-3 sm:p-4">
             <div className="flex items-start space-x-3">
               <div className="p-1.5 rounded-lg bg-emerald-500/10 dark:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 mt-0.5 shrink-0">
                 <Zap className="w-4 h-4" />
@@ -102,7 +102,7 @@ export function ReadinessScore({ today, history7Days }: ReadinessScoreProps) {
             </div>
           </div>
 
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 pt-1 text-xs">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-2.5 pt-1 text-xs">
             {FACTORS.map(({ key, label, icon: Icon, iconClass, textClass, bar, detail }) => {
               const factor = factors[key];
               return (
@@ -126,8 +126,8 @@ export function ReadinessScore({ today, history7Days }: ReadinessScoreProps) {
           </div>
         </div>
 
-        <div className="flex flex-col sm:flex-row items-center gap-5 sm:gap-7 shrink-0 w-full sm:w-auto justify-center">
-          <div className="relative w-48 h-48 sm:w-52 sm:h-52 flex items-center justify-center">
+        <div className="flex flex-row items-center gap-4 sm:gap-7 shrink-0 w-full sm:w-auto justify-center">
+          <div className="relative w-36 h-36 sm:w-52 sm:h-52 shrink-0 flex items-center justify-center">
             <svg className="w-full h-full -rotate-90 transform" viewBox={`0 0 ${CENTER * 2} ${CENTER * 2}`} aria-label={`Readiness ${score} out of 100`}>
               <defs>
                 {rings.map((ring) => (
@@ -157,7 +157,7 @@ export function ReadinessScore({ today, history7Days }: ReadinessScoreProps) {
               ))}
             </svg>
             <div className="absolute inset-0 flex flex-col items-center justify-center text-center select-none pointer-events-none">
-              <span className="text-3xl sm:text-4xl font-black text-slate-900 dark:text-white tracking-tight leading-none">{score}</span>
+              <span className="text-2xl sm:text-4xl font-black text-slate-900 dark:text-white tracking-tight leading-none">{score}</span>
               <span className="text-[10px] sm:text-[11px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500 mt-1">Readiness</span>
             </div>
           </div>

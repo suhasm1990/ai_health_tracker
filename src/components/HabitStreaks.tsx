@@ -63,8 +63,8 @@ export function HabitStreaks({ today, history7Days }: HabitStreaksProps) {
   }, [days]);
 
   return (
-    <section className="rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-5 shadow-sm">
-      <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+    <section className="rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-4 sm:p-5 shadow-sm">
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-3 sm:mb-4">
         <div className="flex items-center space-x-2.5">
           <div className="p-2 rounded-xl bg-gradient-to-tr from-amber-500 to-orange-400 text-white shadow-sm shadow-amber-500/20">
             <Flame className="w-4 h-4 animate-bounce" />
@@ -72,9 +72,9 @@ export function HabitStreaks({ today, history7Days }: HabitStreaksProps) {
           <div>
             <div className="flex items-center space-x-2">
               <h3 className="text-sm font-semibold text-slate-900 dark:text-white">Habit Streaks & Milestone Badges</h3>
-              <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">Resilience Engine</span>
+              <span className="hidden sm:inline px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">Resilience Engine</span>
             </div>
-            <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">Consistent daily micro-habits compound into long-term vitality</p>
+            <p className="hidden sm:block text-xs text-slate-500 dark:text-slate-400 mt-0.5">Consistent daily micro-habits compound into long-term vitality</p>
           </div>
         </div>
 
@@ -98,27 +98,27 @@ export function HabitStreaks({ today, history7Days }: HabitStreaksProps) {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-3">
         {cards.map(({ id, title, description, count, unit, target, milestone, icon: Icon, color, surface, bar }) => {
           const progress = target > 0 ? Math.min(100, Math.round((count / target) * 100)) : 0;
           return (
-            <div key={id} className={`relative overflow-hidden rounded-xl border p-3.5 transition-all duration-200 hover:shadow-md ${surface}`}>
+            <div key={id} className={`relative overflow-hidden rounded-xl border p-2.5 sm:p-3.5 transition-all duration-200 hover:shadow-md ${surface}`}>
               <div className="flex items-center space-x-2">
                 <div className={`p-1.5 rounded-lg bg-white dark:bg-slate-800 shadow-xs ${color}`}>
                   <Icon className="w-4 h-4" />
                 </div>
                 <div>
                   <h4 className="text-xs font-semibold text-slate-800 dark:text-slate-200">{title}</h4>
-                  <span className="text-[10px] text-slate-500 dark:text-slate-400">{description}</span>
+                  <span className="hidden sm:inline text-[10px] text-slate-500 dark:text-slate-400">{description}</span>
                 </div>
               </div>
               <div className="mt-3 flex items-baseline space-x-1.5">
-                <span className="text-2xl font-black tracking-tight text-slate-900 dark:text-white">{count}</span>
+                <span className="text-xl sm:text-2xl font-black tracking-tight text-slate-900 dark:text-white">{count}</span>
                 <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">{unit}</span>
               </div>
               <div className="mt-2.5">
                 <div className="flex items-center justify-between text-[10px] font-medium text-slate-500 dark:text-slate-400 mb-1">
-                  <span>{milestone}</span>
+                  <span className="truncate">{milestone}</span>
                   <span>{progress}%</span>
                 </div>
                 <div className="h-1.5 w-full bg-slate-200 dark:bg-slate-700/80 rounded-full overflow-hidden">

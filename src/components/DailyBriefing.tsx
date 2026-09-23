@@ -139,11 +139,11 @@ export function DailyBriefing({ today, history7Days, userName, onOpenChatWithPro
   ].filter((line) => line.text);
 
   return (
-    <section className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-slate-900/90 via-slate-900/80 to-slate-950/90 dark:from-slate-900/95 dark:via-slate-950/90 dark:to-black border border-slate-700/50 dark:border-slate-800/80 p-5 sm:p-6 shadow-xl backdrop-blur-md transition-all duration-300 hover:border-slate-600/60">
+    <section className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-slate-900/90 via-slate-900/80 to-slate-950/90 dark:from-slate-900/95 dark:via-slate-950/90 dark:to-black border border-slate-700/50 dark:border-slate-800/80 p-4 sm:p-6 shadow-xl backdrop-blur-md transition-all duration-300 hover:border-slate-600/60">
       <div className="absolute -top-24 -right-24 w-72 h-72 rounded-full bg-gradient-to-br from-teal-500/15 via-indigo-500/10 to-transparent blur-3xl pointer-events-none" />
       <div className="absolute -bottom-24 -left-24 w-72 h-72 rounded-full bg-gradient-to-tr from-emerald-500/10 via-cyan-500/10 to-transparent blur-3xl pointer-events-none" />
 
-      <div className="relative z-10 flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-slate-800/70">
+      <div className="relative z-10 flex items-start sm:items-center justify-between gap-3 pb-3 border-b border-slate-800/70">
         <div className="flex items-center space-x-3">
           <div className="flex items-center justify-center w-8 h-8 rounded-xl bg-gradient-to-tr from-teal-500 to-emerald-400 text-slate-950 shadow-md shadow-teal-500/20">
             <Sparkles className="w-4 h-4 fill-slate-950" />
@@ -151,7 +151,7 @@ export function DailyBriefing({ today, history7Days, userName, onOpenChatWithPro
           <div>
             <div className="flex items-center space-x-2">
               <span className="text-sm font-semibold text-white tracking-wide">AI Daily Health Briefing</span>
-              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
+              <span className="hidden sm:inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 mr-1 animate-pulse" />
                 Live Telemetry Synthesis
               </span>
@@ -164,14 +164,14 @@ export function DailyBriefing({ today, history7Days, userName, onOpenChatWithPro
             </div>
           </div>
         </div>
-        <button onClick={regenerate} disabled={isRegenerating} title="Refresh AI briefing synthesis" className="inline-flex items-center space-x-1.5 px-2.5 py-1 text-xs font-medium text-slate-400 hover:text-slate-200 bg-slate-800/60 hover:bg-slate-800 rounded-lg border border-slate-700/60 transition-colors">
-          <RefreshCw className={`w-3 h-3 ${isRegenerating ? "animate-spin text-teal-400" : ""}`} />
-          <span>{isRegenerating ? "Synthesizing..." : "Refresh"}</span>
+        <button onClick={regenerate} disabled={isRegenerating} title="Refresh AI briefing synthesis" aria-label="Refresh briefing" className="shrink-0 inline-flex items-center sm:space-x-1.5 p-2 sm:px-2.5 sm:py-1 text-xs font-medium text-slate-400 hover:text-slate-200 bg-slate-800/60 hover:bg-slate-800 rounded-lg border border-slate-700/60 transition-colors">
+          <RefreshCw className={`w-3.5 h-3.5 sm:w-3 sm:h-3 ${isRegenerating ? "animate-spin text-teal-400" : ""}`} />
+          <span className="hidden sm:inline">{isRegenerating ? "Synthesizing..." : "Refresh"}</span>
         </button>
       </div>
 
-      <div className="relative z-10 mt-4 space-y-3">
-        <div className="text-sm text-slate-200 leading-relaxed space-y-2">
+      <div className="relative z-10 mt-3 sm:mt-4 space-y-3">
+        <div className="text-xs sm:text-sm text-slate-200 leading-relaxed space-y-2">
           {lines.map((line, i) => (
             <p key={i} className="flex items-start gap-2">
               <span className={`inline-block w-1.5 h-1.5 rounded-full mt-2 shrink-0 ${line.dot}`} />
@@ -185,9 +185,9 @@ export function DailyBriefing({ today, history7Days, userName, onOpenChatWithPro
             <span className="text-[11px] font-medium uppercase tracking-wider text-slate-400">Deep-Dive with AI Coach:</span>
             <span className="text-[10px] text-slate-500">1-click automated inquiry</span>
           </div>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+          <div className="flex gap-2 overflow-x-auto -mx-1 px-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden sm:grid sm:grid-cols-3 sm:overflow-visible sm:mx-0 sm:px-0">
             {synthesis.prompts.map(({ id, title, icon: Icon, color, prompt }) => (
-              <button key={id} onClick={() => onOpenChatWithPrompt(prompt)} className={`flex items-center justify-between p-2.5 rounded-xl border text-left text-xs transition-all duration-200 group ${color}`}>
+              <button key={id} onClick={() => onOpenChatWithPrompt(prompt)} className={`flex items-center justify-between p-2.5 rounded-xl border text-left text-xs transition-all duration-200 group shrink-0 min-w-[190px] sm:min-w-0 ${color}`}>
                 <div className="flex items-center space-x-2 truncate">
                   <Icon className="w-4 h-4 shrink-0 transition-transform group-hover:scale-110" />
                   <span className="font-medium truncate text-slate-200 group-hover:text-white">{title}</span>

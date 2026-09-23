@@ -21,7 +21,7 @@ export function StatTile({ label, value, sub, icon: Icon, iconClass = "", valueC
         {Icon && <Icon className={`w-3.5 h-3.5 ${iconClass}`} />}
         <span>{label}</span>
       </div>
-      <div className={`font-bold ${large ? "text-xl" : "text-base"} ${valueClass}`}>{value}</div>
+      <div className={`font-bold ${large ? "text-lg sm:text-xl" : "text-sm sm:text-base"} ${valueClass}`}>{value}</div>
       {sub && <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 font-medium">{sub}</div>}
     </div>
   );

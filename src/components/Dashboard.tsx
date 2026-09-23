@@ -37,7 +37,7 @@ const metricCards = (t: DailyMetricSummary, readingsFrom: string | null): Metric
     unit: "steps",
     icon: Footprints,
     accent: "text-emerald-400 bg-emerald-500/10 border-emerald-500/20",
-    goal: { current: t.steps, target: t.stepsGoal, label: `${t.stepsGoal.toLocaleString()} Step Goal` },
+    goal: { current: t.steps, target: t.stepsGoal, label: "Step Goal" },
     footerItems: [
       { label: "Distance", value: `${t.distanceKm} km` },
       { label: "Floors", value: `${t.floors} fl` },
@@ -76,7 +76,7 @@ const metricCards = (t: DailyMetricSummary, readingsFrom: string | null): Metric
     subtitle: readingsFrom ? `Latest reading from ${readingsFrom}` : "Calculated over sleep & rest periods",
     badge: { text: t.restingHeartRate && t.restingHeartRate <= 60 ? "Resting Optimal" : "Normal Resting", type: "positive" },
     footerItems: [
-      { label: "Daily Range", value: t.restingHeartRate && t.maxHeartRate ? `${t.restingHeartRate} - ${t.maxHeartRate} bpm` : "—" },
+      { label: "Daily Range", value: t.restingHeartRate && t.maxHeartRate ? `${t.restingHeartRate}–${t.maxHeartRate} bpm` : "—" },
       { label: "HRV (RMSSD)", value: withUnit(t.heartRateVariability, "ms") },
     ],
   },
@@ -89,7 +89,7 @@ const metricCards = (t: DailyMetricSummary, readingsFrom: string | null): Metric
     subtitle: "Nightly blood oxygen average",
     badge: { text: t.oxygenSaturation && t.oxygenSaturation >= 95 ? "Normal Range" : "Recorded Range", type: "positive" },
     footerItems: [
-      { label: "Nightly Range", value: t.minOxygenSaturation && t.maxOxygenSaturation ? `${t.minOxygenSaturation}% - ${t.maxOxygenSaturation}%` : "—" },
+      { label: "Nightly Range", value: t.minOxygenSaturation && t.maxOxygenSaturation ? `${t.minOxygenSaturation}–${t.maxOxygenSaturation}%` : "—" },
       { label: "Readings", value: t.oxygenSaturationSamples ? `${t.oxygenSaturationSamples} samples` : "Continuous" },
     ],
   },
@@ -153,7 +153,7 @@ export function Dashboard({ initialAuthStatus, initialDevices, initialMetrics, i
         onOpenShareCard={() => setShareOpen(true)}
       />
 
-      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
+      <main className="flex-1 max-w-7xl w-full mx-auto px-3 sm:px-6 lg:px-8 py-4 sm:py-6 space-y-4 sm:space-y-6">
         {toast && (
           <div role="status" className="p-3.5 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-800 dark:text-emerald-300 flex items-center justify-between text-xs font-medium animate-in fade-in slide-in-from-top duration-300 shadow-lg shadow-emerald-950/10 dark:shadow-emerald-950/40">
             <div className="flex items-center space-x-2">
@@ -167,25 +167,26 @@ export function Dashboard({ initialAuthStatus, initialDevices, initialMetrics, i
         )}
 
         {authStatus.isDemo && (
-          <div className="p-4 rounded-2xl bg-gradient-to-r from-amber-500/10 via-amber-600/5 to-white dark:to-slate-900 border border-amber-500/30 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-sm">
-            <div className="flex items-start sm:items-center space-x-3">
+          <div className="p-3 sm:p-4 rounded-2xl bg-gradient-to-r from-amber-500/10 via-amber-600/5 to-white dark:to-slate-900 border border-amber-500/30 flex items-center justify-between gap-3 shadow-sm">
+            <div className="flex items-center space-x-3 min-w-0">
               <div className="p-2 rounded-xl bg-amber-500/20 text-amber-600 dark:text-amber-400 shrink-0">
                 <Sparkles className="w-5 h-5" />
               </div>
               <div>
                 <h2 className="text-sm font-semibold text-slate-900 dark:text-white">Running in Demo Sandbox Mode</h2>
-                <p className="text-xs text-slate-600 dark:text-slate-400 mt-0.5">Displaying simulated metrics for sample wearable devices. Connect your Google account to fetch real-time data.</p>
+                <p className="hidden sm:block text-xs text-slate-600 dark:text-slate-400 mt-0.5">Displaying simulated metrics for sample wearable devices. Connect your Google account to fetch real-time data.</p>
               </div>
             </div>
-            <a href="/api/auth/login" className="self-start sm:self-auto shrink-0 px-3.5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-semibold shadow transition-all">
-              Connect Google Account
+            <a href="/api/auth/login" className="shrink-0 px-3.5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-semibold shadow transition-all">
+              <span className="sm:hidden">Connect</span>
+              <span className="hidden sm:inline">Connect Google Account</span>
             </a>
           </div>
         )}
 
         <DeviceList devices={devices} onSync={() => refreshAll("Devices synced and metrics refreshed.")} isSyncing={isRefreshing} isDemo={authStatus.isDemo} onTryDemo={toggleDemo} />
 
-        <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400 pt-1">
+        <div className="hidden sm:flex items-center justify-between text-xs text-slate-500 dark:text-slate-400 pt-1">
           <div className="flex items-center space-x-2">
             <span>Telemetry Stream:</span>
             <span className="inline-flex items-center space-x-1.5 font-medium text-emerald-700 dark:text-emerald-400 bg-emerald-500/10 px-2.5 py-0.5 rounded-md border border-emerald-500/20">
@@ -204,13 +205,13 @@ export function Dashboard({ initialAuthStatus, initialDevices, initialMetrics, i
         <DailyBriefing today={today} history7Days={history7Days} userName={userName} onOpenChatWithPrompt={(text) => chat.current?.ask(text)} />
         <HabitStreaks today={today} history7Days={history7Days} />
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
+        <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3 sm:gap-4">
           {metricCards(today, readingsFrom).map((card) => (
             <MetricCard key={card.title} {...card} isLoading={isInitialLoading} />
           ))}
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6">
           <StepChart intradaySteps={metrics.intradaySteps} history={history7Days} stepGoal={today.stepsGoal} />
           <HeartRateChart intradayHeartRate={metrics.intradayHeartRate} history={history7Days} today={today} />
         </div>
