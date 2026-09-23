@@ -1,7 +1,7 @@
 "use client";
 
 import { ChevronRight, Coffee, Heart, Moon, RefreshCw, Sparkles, Sun, Sunset, Zap, type LucideIcon } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState, useSyncExternalStore } from "react";
 import { renderInline } from "@/lib/markdown";
 import type { DailyMetricSummary } from "@/lib/types";
 import { formatDuration, meanOf, restorativeMinutes, withUnit } from "@/lib/utils";
@@ -50,15 +50,17 @@ const MOVEMENT_TIPS: Record<"done" | "half" | "start", Record<Period, (c: StepCo
   },
 };
 
+const noopSubscribe = () => () => {};
+/** Current hour on the client, null during server rendering so markup matches on hydration. */
+const useClientHour = () => useSyncExternalStore(noopSubscribe, () => new Date().getHours(), () => null);
+
 const BOLD = { strong: "text-white font-semibold" };
 const BOLD_ACCENT = { strong: "text-emerald-300 font-semibold" };
 
 export function DailyBriefing({ today, history7Days, userName, onOpenChatWithPrompt }: DailyBriefingProps) {
   const [isRegenerating, setIsRegenerating] = useState(false);
-  const [edition, setEdition] = useState(0); // bumping re-reads the clock
-  // The hour is read on the client only, so server and client markup match.
-  const [hour, setHour] = useState<number | null>(null);
-  useEffect(() => setHour(new Date().getHours()), [edition]);
+  const [, setEdition] = useState(0); // bumping re-renders, which re-reads the clock
+  const hour = useClientHour();
 
   const greeting = useMemo(() => {
     const name = userName?.split(" ")[0] || "there";

@@ -16,15 +16,14 @@ interface HeaderProps {
   onOpenShareCard: () => void;
 }
 
-const login = () => {
-  window.location.href = "/api/auth/login";
-};
+const LOGIN_URL = "/api/auth/login";
 
+/** Clears the session cookie, then reloads so the server re-renders in demo mode. */
 async function logout() {
   try {
     await fetch("/api/auth/logout", { method: "POST" });
   } finally {
-    window.location.href = "/";
+    window.location.reload();
   }
 }
 
@@ -122,15 +121,15 @@ export function Header({ authStatus, devices, isRefreshing, onToggleDemo, onRefr
           {authStatus.isAuthenticated ? (
             <div className="flex items-center space-x-2 pl-1 border-l border-slate-200 dark:border-slate-700/60">
               <Avatar user={user} className="ring-emerald-500/50" />
-              <button onClick={logout} title="Disconnect Google Account" aria-label="Sign out" className={`p-1.5 hover:!text-rose-600 dark:hover:!text-rose-400 ${SECONDARY_BTN}`}>
+              <button onClick={logout} title="Disconnect Google Account" aria-label="Sign out" className={`p-1.5 hover:text-rose-600! dark:hover:text-rose-400! ${SECONDARY_BTN}`}>
                 <LogOut className="w-4 h-4" />
               </button>
             </div>
           ) : (
-            <button onClick={login} className={`flex items-center space-x-1.5 px-3 py-1.5 shadow-md shadow-emerald-900/20 dark:shadow-emerald-900/40 active:scale-95 ${PRIMARY_BTN}`}>
+            <a href={LOGIN_URL} className={`flex items-center space-x-1.5 px-3 py-1.5 shadow-md shadow-emerald-900/20 dark:shadow-emerald-900/40 active:scale-95 ${PRIMARY_BTN}`}>
               <LogIn className="w-3.5 h-3.5" />
               <span>Connect Google</span>
-            </button>
+            </a>
           )}
         </div>
 
@@ -142,9 +141,9 @@ export function Header({ authStatus, devices, isRefreshing, onToggleDemo, onRefr
           {authStatus.isAuthenticated ? (
             <Avatar user={user} />
           ) : (
-            <button onClick={login} className={`px-2.5 py-1.5 ${PRIMARY_BTN}`}>
+            <a href={LOGIN_URL} className={`px-2.5 py-1.5 ${PRIMARY_BTN}`}>
               Connect
-            </button>
+            </a>
           )}
           <button
             onClick={() => setMenuOpen((open) => !open)}
@@ -178,7 +177,7 @@ export function Header({ authStatus, devices, isRefreshing, onToggleDemo, onRefr
 
           <div className={`grid ${showDemoToggle ? "grid-cols-2" : "grid-cols-1"} gap-2`}>
             {showDemoToggle && <DemoToggle isDemo={authStatus.isDemo} onClick={closeMenuThen(onToggleDemo)} className="justify-center px-3 py-2.5 rounded-xl" />}
-            <button onClick={closeMenuThen(onRefresh)} disabled={isRefreshing} className={`flex items-center justify-center space-x-1.5 px-3 py-2.5 text-xs font-medium !rounded-xl ${SECONDARY_BTN}`}>
+            <button onClick={closeMenuThen(onRefresh)} disabled={isRefreshing} className={`flex items-center justify-center space-x-1.5 px-3 py-2.5 text-xs font-medium rounded-xl! ${SECONDARY_BTN}`}>
               <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? "animate-spin text-emerald-500" : ""}`} />
               <span>{isRefreshing ? "Syncing..." : "Sync Metrics"}</span>
             </button>
@@ -190,15 +189,15 @@ export function Header({ authStatus, devices, isRefreshing, onToggleDemo, onRefr
           </div>
 
           <div className="flex items-center space-x-2 pt-0.5">
-            <button onClick={closeMenuThen(onOpenApiTester)} className={`flex-1 flex items-center justify-center space-x-1.5 px-3 py-2 text-xs font-medium !rounded-xl ${SECONDARY_BTN}`}>
+            <button onClick={closeMenuThen(onOpenApiTester)} className={`flex-1 flex items-center justify-center space-x-1.5 px-3 py-2 text-xs font-medium rounded-xl! ${SECONDARY_BTN}`}>
               <Code2 className="w-3.5 h-3.5 text-cyan-600 dark:text-cyan-400" />
               <span>API Explorer & Tester</span>
             </button>
             {!authStatus.isAuthenticated && (
-              <button onClick={login} className={`flex-1 flex items-center justify-center space-x-1.5 px-3 py-2 !rounded-xl ${PRIMARY_BTN}`}>
+              <a href={LOGIN_URL} className={`flex-1 flex items-center justify-center space-x-1.5 px-3 py-2 rounded-xl! ${PRIMARY_BTN}`}>
                 <LogIn className="w-3.5 h-3.5" />
                 <span>Connect Google</span>
-              </button>
+              </a>
             )}
           </div>
         </div>

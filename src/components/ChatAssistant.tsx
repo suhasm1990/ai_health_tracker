@@ -1,7 +1,7 @@
 "use client";
 
 import { BatteryCharging, Bot, ChevronDown, ChevronUp, Footprints, Heart, Loader2, Maximize2, Minimize2, Moon, Send, Sparkles, Trash2, User, Wrench, X } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useImperativeHandle, useRef, useState, type Ref } from "react";
 import { renderMarkdown } from "@/lib/markdown";
 import type { AgentResponse, ChatMessage, ToolExecutionSummary } from "@/lib/llm/types";
 import type { LlmStatus } from "@/lib/types";
@@ -13,10 +13,13 @@ interface MessageItem extends ChatMessage {
   toolsCalled?: ToolExecutionSummary[];
 }
 
+/** Imperative API so other dashboard panels can open the assistant with a question. */
+export interface ChatAssistantHandle {
+  ask(text: string): void;
+}
+
 interface ChatAssistantProps {
-  /** A prompt injected from elsewhere in the dashboard; sent as soon as it changes. */
-  externalPrompt: string | null;
-  onExternalPromptConsumed: () => void;
+  ref?: Ref<ChatAssistantHandle>;
   llm?: LlmStatus;
 }
 
@@ -39,66 +42,74 @@ const assistantMessage = (content: string, extra: Partial<MessageItem> = {}): Me
   ...extra,
 });
 
+async function requestReply(history: MessageItem[]): Promise<Partial<AgentResponse>> {
+  const res = await fetch("/api/chat", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ messages: history.map(({ role, content }) => ({ role, content })) }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || `Chat error (${res.status})`);
+  return data;
+}
+
 const ICON_BTN = "p-1.5 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors";
 
-export function ChatAssistant({ externalPrompt, onExternalPromptConsumed, llm }: ChatAssistantProps) {
+export function ChatAssistant({ ref, llm }: ChatAssistantProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
   const [input, setInput] = useState("");
-  const [loading, setLoading] = useState(false);
   const [provider, setProvider] = useState({ name: llm?.provider ?? "Sandbox Health Advisor", model: llm?.model ?? "google-health-agent" });
   const [messages, setMessages] = useState<MessageItem[]>(() => [assistantMessage(WELCOME, { id: "welcome" })]);
+  /** Conversation awaiting a reply; non-null while a request is in flight. */
+  const [pending, setPending] = useState<MessageItem[] | null>(null);
   const [expandedTools, setExpandedTools] = useState<Record<string, boolean>>({});
-
-  const messagesRef = useRef(messages);
-  const busy = useRef(false);
+  const inFlight = useRef<MessageItem[] | null>(null);
   const endRef = useRef<HTMLDivElement>(null);
+  const loading = pending !== null;
 
-  useEffect(() => {
-    messagesRef.current = messages;
-    if (isOpen) endRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, isOpen]);
-
-  const send = useCallback(async (raw: string) => {
+  const submit = (raw: string) => {
     const query = raw.trim();
-    if (!query || busy.current) return;
-    busy.current = true;
-    setLoading(true);
+    if (!query || pending) return;
+    const history = [...messages, { id: `user-${Date.now()}`, role: "user" as const, content: query, timestamp: formatClock() }];
     setInput("");
-
-    const history = [...messagesRef.current, { id: `user-${Date.now()}`, role: "user" as const, content: query, timestamp: formatClock() }];
     setMessages(history);
+    setPending(history);
+  };
 
-    try {
-      const res = await fetch("/api/chat", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages: history.map(({ role, content }) => ({ role, content })) }),
-      });
-      const data: Partial<AgentResponse> & { error?: string } = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error || `Chat error (${res.status})`);
-      setMessages((prev) => [...prev, assistantMessage(data.message?.content || "I couldn't generate a response.", { toolsCalled: data.toolsCalled ?? [] })]);
-      if (data.provider && data.model) setProvider({ name: data.provider, model: data.model });
-    } catch (err) {
-      const reason = err instanceof Error ? err.message : "Network error";
-      setMessages((prev) => [...prev, assistantMessage(`Sorry, an error occurred while analyzing your health data: ${reason}. Please check your connection or LLM API keys in .env.local.`)]);
-    } finally {
-      busy.current = false;
-      setLoading(false);
-    }
-  }, []);
+  useImperativeHandle(ref, () => ({
+    ask(text: string) {
+      setIsOpen(true);
+      submit(text);
+    },
+  }));
 
   useEffect(() => {
-    if (!externalPrompt) return;
-    setIsOpen(true);
-    void send(externalPrompt);
-    onExternalPromptConsumed();
-  }, [externalPrompt, send, onExternalPromptConsumed]);
+    if (!pending || inFlight.current === pending) return;
+    inFlight.current = pending;
+    requestReply(pending)
+      .then((data) => {
+        setMessages((prev) => [...prev, assistantMessage(data.message?.content || "I couldn't generate a response.", { toolsCalled: data.toolsCalled ?? [] })]);
+        if (data.provider && data.model) setProvider({ name: data.provider, model: data.model });
+      })
+      .catch((err: unknown) => {
+        const reason = err instanceof Error ? err.message : "Network error";
+        setMessages((prev) => [...prev, assistantMessage(`Sorry, an error occurred while analyzing your health data: ${reason}. Please check your connection or LLM API keys in .env.local.`)]);
+      })
+      .finally(() => {
+        inFlight.current = null;
+        setPending(null);
+      });
+  }, [pending]);
+
+  useEffect(() => {
+    if (isOpen) endRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages, loading, isOpen]);
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
-      void send(input);
+      submit(input);
     }
   };
 
@@ -210,7 +221,7 @@ export function ChatAssistant({ externalPrompt, onExternalPromptConsumed, llm }:
           <div className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 mb-1.5">Suggested questions:</div>
           <div className="flex flex-wrap gap-1.5">
             {STARTER_PROMPTS.map(({ text, icon: Icon }) => (
-              <button key={text} onClick={() => send(text)} disabled={loading} className="inline-flex items-center space-x-1.5 px-2.5 py-1 rounded-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:border-emerald-500 hover:text-emerald-600 dark:hover:text-emerald-400 text-[11px] transition-all shadow-xs">
+              <button key={text} onClick={() => submit(text)} disabled={loading} className="inline-flex items-center space-x-1.5 px-2.5 py-1 rounded-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:border-emerald-500 hover:text-emerald-600 dark:hover:text-emerald-400 text-[11px] transition-all shadow-xs">
                 <Icon className="w-3 h-3 text-emerald-500" />
                 <span>{text}</span>
               </button>
@@ -232,7 +243,7 @@ export function ChatAssistant({ externalPrompt, onExternalPromptConsumed, llm }:
             aria-label="Message"
             className="w-full pl-3.5 pr-12 py-2.5 text-xs bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-2xl text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-slate-600 focus:outline-none focus:border-emerald-500 resize-none max-h-28"
           />
-          <button onClick={() => send(input)} disabled={loading || !input.trim()} aria-label="Send message" className="absolute right-2 p-2 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 disabled:hover:bg-emerald-600 text-white rounded-xl shadow-md transition-colors">
+          <button onClick={() => submit(input)} disabled={loading || !input.trim()} aria-label="Send message" className="absolute right-2 p-2 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 disabled:hover:bg-emerald-600 text-white rounded-xl shadow-md transition-colors">
             {loading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
           </button>
         </div>

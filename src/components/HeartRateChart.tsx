@@ -33,7 +33,7 @@ function IntradayTooltip({ active, payload, label }: TooltipContent<IntradayHear
   if (!active || !payload?.length) return null;
   const point = payload[0].payload;
   return (
-    <TooltipBox className="!p-2.5">
+    <TooltipBox className="p-2.5!">
       <p className="text-slate-500 dark:text-slate-400 font-medium">Time: {label}</p>
       <p className="text-rose-500 dark:text-rose-400 font-bold text-sm">
         {point.bpm} <span className="text-slate-400 text-xs">bpm</span>

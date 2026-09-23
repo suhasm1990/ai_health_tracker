@@ -6,6 +6,8 @@ Runs fully offline in **Demo mode** with sample data. Connect a Google account f
 
 ## Quick start
 
+Requires Node.js 20.9 or newer.
+
 ```bash
 npm install
 cp .env.example .env.local   # fill in values (see below)

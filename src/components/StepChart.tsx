@@ -27,7 +27,7 @@ const MARGIN = { top: 10, right: 10, left: -20, bottom: 0 };
 function StepTooltip({ active, payload, label, mode }: TooltipContent<unknown> & { mode: View }) {
   if (!active || !payload?.length) return null;
   return (
-    <TooltipBox className="!p-2.5">
+    <TooltipBox className="p-2.5!">
       <p className="text-slate-500 dark:text-slate-400 font-medium">{mode === "intraday" ? `Hour: ${label}` : `Day: ${label}`}</p>
       <p className="text-emerald-600 dark:text-emerald-400 font-bold text-sm">
         {(payload[0].value ?? 0).toLocaleString()} <span className="text-slate-400 text-xs">steps</span>

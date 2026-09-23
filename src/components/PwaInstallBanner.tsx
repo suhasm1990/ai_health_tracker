@@ -15,7 +15,7 @@ const isStandalone = () =>
 /** Mobile-only install nudge: native prompt on Android, Safari instructions on iOS. */
 export function PwaInstallBanner() {
   const [visible, setVisible] = useState(false);
-  const [isIOS, setIsIOS] = useState(false);
+  const [isIOS] = useState(() => typeof navigator !== "undefined" && /iphone|ipad|ipod/.test(navigator.userAgent.toLowerCase()));
   const [installEvent, setInstallEvent] = useState<BeforeInstallPromptEvent | null>(null);
 
   useEffect(() => {
@@ -26,9 +26,7 @@ export function PwaInstallBanner() {
     }
     if (isStandalone()) return;
 
-    const ua = navigator.userAgent.toLowerCase();
-    const ios = /iphone|ipad|ipod/.test(ua);
-    setIsIOS(ios);
+    const isMobile = isIOS || /android/.test(navigator.userAgent.toLowerCase());
 
     const onInstallPrompt = (e: Event) => {
       e.preventDefault();
@@ -36,12 +34,12 @@ export function PwaInstallBanner() {
       setVisible(true);
     };
     window.addEventListener("beforeinstallprompt", onInstallPrompt);
-    const timer = ios || /android/.test(ua) ? setTimeout(() => setVisible(true), 3000) : undefined;
+    const timer = isMobile ? setTimeout(() => setVisible(true), 3000) : undefined;
     return () => {
       clearTimeout(timer);
       window.removeEventListener("beforeinstallprompt", onInstallPrompt);
     };
-  }, []);
+  }, [isIOS]);
 
   const dismiss = () => {
     setVisible(false);

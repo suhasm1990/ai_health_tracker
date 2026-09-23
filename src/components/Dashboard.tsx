@@ -2,8 +2,8 @@
 
 import { CheckCircle2, CloudOff, Flame, Footprints, Heart, Scale, Sparkles, Wind, Zap } from "lucide-react";
 import dynamic from "next/dynamic";
-import { useCallback, useState } from "react";
-import { ChatAssistant } from "@/components/ChatAssistant";
+import { useRef, useState } from "react";
+import { ChatAssistant, type ChatAssistantHandle } from "@/components/ChatAssistant";
 import { DailyBriefing } from "@/components/DailyBriefing";
 import { DeviceList } from "@/components/DeviceList";
 import { Footer } from "@/components/Footer";
@@ -27,6 +27,7 @@ interface DashboardProps {
   initialAuthStatus: DashboardInitial["authStatus"];
   initialDevices: DashboardInitial["devices"];
   initialMetrics: DashboardInitial["metrics"];
+  initialNotice: string | null;
 }
 
 const metricCards = (t: DailyMetricSummary, readingsFrom: string | null): MetricCardProps[] => [
@@ -124,16 +125,16 @@ function StaleDataNotice({ freshness, readingsFrom, onRefresh }: { freshness: Da
   );
 }
 
-export function Dashboard({ initialAuthStatus, initialDevices, initialMetrics }: DashboardProps) {
+export function Dashboard({ initialAuthStatus, initialDevices, initialMetrics, initialNotice }: DashboardProps) {
   const { authStatus, devices, metrics, isInitialLoading, isRefreshing, toast, dismissToast, refreshAll, toggleDemo } = useDashboardData({
     authStatus: initialAuthStatus,
     devices: initialDevices,
     metrics: initialMetrics,
+    notice: initialNotice,
   });
   const [apiTesterOpen, setApiTesterOpen] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
-  const [chatPrompt, setChatPrompt] = useState<string | null>(null);
-  const clearChatPrompt = useCallback(() => setChatPrompt(null), []);
+  const chat = useRef<ChatAssistantHandle>(null);
 
   const { today, history7Days, freshness } = metrics;
   const userName = authStatus.user?.displayName;
@@ -200,7 +201,7 @@ export function Dashboard({ initialAuthStatus, initialDevices, initialMetrics }:
         {showStaleNotice && <StaleDataNotice freshness={freshness} readingsFrom={readingsFrom} onRefresh={() => refreshAll()} />}
 
         <ReadinessScore today={today} history7Days={history7Days} />
-        <DailyBriefing today={today} history7Days={history7Days} userName={userName} onOpenChatWithPrompt={setChatPrompt} />
+        <DailyBriefing today={today} history7Days={history7Days} userName={userName} onOpenChatWithPrompt={(text) => chat.current?.ask(text)} />
         <HabitStreaks today={today} history7Days={history7Days} />
 
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
@@ -221,7 +222,7 @@ export function Dashboard({ initialAuthStatus, initialDevices, initialMetrics }:
 
       {apiTesterOpen && <ApiTester onClose={() => setApiTesterOpen(false)} apiVersion={authStatus.apiVersion} />}
       {shareOpen && <ShareCardModal onClose={() => setShareOpen(false)} today={today} userName={userName} />}
-      <ChatAssistant externalPrompt={chatPrompt} onExternalPromptConsumed={clearChatPrompt} llm={authStatus.llm} />
+      <ChatAssistant ref={chat} llm={authStatus.llm} />
       <PwaInstallBanner />
     </div>
   );
