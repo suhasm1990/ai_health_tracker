@@ -37,6 +37,7 @@ const emptyPayload = (): HealthMetricsPayload => ({
   intradayHeartRate: [],
   history7Days: [],
   freshness: { syncedToday: false, fallbackDate: null },
+  todayWorkouts: [],
 });
 
 const errorMessage = (err: unknown) => (err instanceof Error ? err.message : "Could not refresh health data");

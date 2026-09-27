@@ -21,6 +21,7 @@ import {
 } from "../utils";
 import * as api from "./client";
 import { parseSleepRecords } from "./sleep";
+import { parseWorkouts } from "./workouts";
 
 export interface MetricsQuery {
   forceRefresh?: boolean;
@@ -126,19 +127,21 @@ async function loadLiveMetrics(state: AuthState, today: string, timeZone?: strin
   const rangeEnd = isoToCivil(shiftIso(today, 2));
   const intradayWindow = { start: new Date(`${shiftIso(today, -1)}T00:00:00Z`), end: new Date(`${shiftIso(today, 1)}T23:59:59Z`) };
 
-  const [rollups, sleep, dailyHrv, spo2, body, intradaySteps, intradayHeartRate] = await Promise.all([
+  const [rollups, sleep, dailyHrv, spo2, body, exercise, intradaySteps, intradayHeartRate] = await Promise.all([
     Promise.all(ROLLUP_TYPES.map((type) => api.dailyRollup(token, type, rangeStart, rangeEnd).then(indexByDate))),
     api.listDataPoints(token, "sleep", 20),
     api.listDataPoints(token, "daily-heart-rate-variability", 10),
     api.listDataPoints(token, "oxygen-saturation", 20),
     // Weight and height change rarely: keep them for an hour instead of refetching every load.
     cached(`${state.scope}:body`, BODY_TTL_MS, () => fetchBodyStats(token)),
+    api.listDataPoints(token, "exercise", 25),
     fetchIntradaySteps(token, intradayWindow, today, timeZone),
     fetchIntradayHeartRate(token, intradayWindow, today, timeZone),
   ]);
   const [steps, calories, distance, azm, heartRate, floors] = rollups;
   const sleepByDate = parseSleepRecords(sleep?.dataPoints ?? [], timeZone);
   const hrvByDate = indexDailyHrv(dailyHrv?.dataPoints ?? []);
+  const todayWorkouts = parseWorkouts(exercise?.dataPoints ?? [], today, timeZone, intradayHeartRate);
 
   /**
    * Readings (heart rate, sleep, HRV) may fall back to the most recent recorded day
@@ -194,7 +197,7 @@ async function loadLiveMetrics(state: AuthState, today: string, timeZone?: strin
     fallbackDate: fallbackDates.sort().pop() ?? null,
   };
 
-  return { today: todayRow, intradaySteps, intradayHeartRate, history7Days, freshness };
+  return { today: todayRow, intradaySteps, intradayHeartRate, history7Days, freshness, todayWorkouts };
 }
 
 /* ---------- intraday series ---------- */

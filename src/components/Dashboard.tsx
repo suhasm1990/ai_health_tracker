@@ -15,6 +15,7 @@ import { PwaInstallBanner } from "@/components/PwaInstallBanner";
 import { ReadinessScore } from "@/components/ReadinessScore";
 import { SleepTimeline } from "@/components/SleepTimeline";
 import { StepChart } from "@/components/StepChart";
+import { TodayActivity } from "@/components/TodayActivity";
 import { useDashboardData, type DashboardInitial } from "@/hooks/useDashboardData";
 import type { DailyMetricSummary, DataFreshness } from "@/lib/types";
 import { formatShortDate, withUnit } from "@/lib/utils";
@@ -204,6 +205,7 @@ export function Dashboard({ initialAuthStatus, initialDevices, initialMetrics, i
         <ReadinessScore today={today} history7Days={history7Days} />
         <DailyBriefing today={today} history7Days={history7Days} userName={userName} onOpenChatWithPrompt={(text) => chat.current?.ask(text)} />
         <HabitStreaks today={today} history7Days={history7Days} />
+        <TodayActivity workouts={metrics.todayWorkouts} today={today} />
 
         <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3 sm:gap-4">
           {metricCards(today, readingsFrom).map((card) => (

@@ -80,6 +80,34 @@ export interface DailyMetricSummary {
   cardioPeakMinutes: number;
 }
 
+export interface WorkoutSession {
+  id: string;
+  activityType: string;
+  rawType?: string;
+  startTime: string;
+  endTime: string;
+  startIso?: string;
+  endIso?: string;
+  durationMinutes: number;
+  activeMinutes?: number;
+  caloriesBurned?: number | null;
+  averageHeartRate?: number | null;
+  peakHeartRate?: number | null;
+  activeZoneMinutes?: number | null;
+  distanceKm?: number | null;
+  speedKmh?: number | null;
+  paceFormatted?: string | null;
+  steps?: number | null;
+  cadenceSpm?: number | null;
+  elevationGainMeters?: number | null;
+  sourceDevice?: string | null;
+  heartRateZones?: {
+    fatBurnMinutes?: number;
+    cardioMinutes?: number;
+    peakMinutes?: number;
+  };
+}
+
 export interface DataFreshness {
   /** True when at least one activity rollup exists for today (the device has synced today). */
   syncedToday: boolean;
@@ -93,6 +121,7 @@ export interface HealthMetricsPayload {
   intradayHeartRate: IntradayHeartRatePoint[];
   history7Days: DailyMetricSummary[];
   freshness: DataFreshness;
+  todayWorkouts: WorkoutSession[];
 }
 
 export interface UserProfile {

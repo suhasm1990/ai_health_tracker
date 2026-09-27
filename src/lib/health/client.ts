@@ -49,6 +49,33 @@ export interface SleepSummary {
   stagesSummary?: SleepStageSummary[];
 }
 
+export interface ExerciseMetricsSummary {
+  activeDuration?: string | number;
+  caloriesKcal?: number;
+  averageHeartRateBeatsPerMinute?: number;
+  peakHeartRateBeatsPerMinute?: number;
+  maxHeartRateBeatsPerMinute?: number;
+  activeZoneMinutes?: number;
+  distanceMillimeters?: number;
+  steps?: number;
+  averagePaceSecondsPerMeter?: number;
+  averageSpeedMillimetersPerSecond?: number;
+  elevationGainMillimeters?: number;
+  heartRateZoneDurations?: {
+    lightTime?: string;
+    moderateTime?: string;
+    vigorousTime?: string;
+    peakTime?: string;
+  };
+}
+
+export interface ExerciseSession {
+  exerciseType?: string;
+  activityType?: string;
+  interval?: Interval;
+  metricsSummary?: ExerciseMetricsSummary;
+}
+
 export interface DataPoint {
   dataSource?: DataSource;
   interval?: Interval;
@@ -57,7 +84,10 @@ export interface DataPoint {
   civilEndTime?: CivilDateTime;
   steps?: { count?: number; interval?: Interval };
   distance?: { interval?: Interval };
-  exercise?: { interval?: Interval };
+  exercise?: ExerciseSession;
+  metricsSummary?: ExerciseMetricsSummary;
+  exerciseType?: string;
+  activityType?: string;
   heartRate?: { sampleTime?: string };
   heartRateVariability?: { rootMeanSquareOfSuccessiveDifferencesMilliseconds?: number };
   dailyHeartRateVariability?: {

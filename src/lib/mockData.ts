@@ -7,6 +7,7 @@ import type {
   IntradayStepPoint,
   PairedDevice,
   SleepStageSegment,
+  WorkoutSession,
 } from "./types";
 
 const minutesAgo = (m: number) => new Date(Date.now() - m * 60_000).toISOString();
@@ -96,6 +97,33 @@ const HISTORY: DayOverrides[] = [
   { steps: 8742, activeZoneMinutes: 46, caloriesBurned: 2240, distanceKm: 6.4, floors: 14, restingHeartRate: 61, avgHeartRate: 74, maxHeartRate: 148, heartRateVariability: 54, oxygenSaturation: 98, respiratoryRate: 14.8, sleepDurationMinutes: 462, sleepScore: 85, sleepEfficiency: 93, sleepStartTime: "11:14 PM", sleepEndTime: "07:22 AM", weightKg: 74.3, bodyFatPercent: 18.2, fatBurnMinutes: 28, cardioPeakMinutes: 9 },
 ];
 
+export const MOCK_TODAY_WORKOUT: WorkoutSession = {
+  id: "mock-workout-today-1",
+  activityType: "Outdoor Run",
+  rawType: "RUNNING",
+  startTime: "06:00 PM",
+  endTime: "06:42 PM",
+  startIso: minutesAgo(42),
+  endIso: minutesAgo(0),
+  durationMinutes: 42,
+  activeMinutes: 40,
+  caloriesBurned: 385,
+  averageHeartRate: 142,
+  peakHeartRate: 168,
+  activeZoneMinutes: 35,
+  distanceKm: 4.8,
+  speedKmh: 11.4,
+  paceFormatted: "5'15\" /km",
+  steps: 4680,
+  elevationGainMeters: 28,
+  sourceDevice: "Apple Watch via HealthKit",
+  heartRateZones: {
+    peakMinutes: 9,
+    cardioMinutes: 18,
+    fatBurnMinutes: 13,
+  },
+};
+
 /** Demo metrics stamped with real calendar dates ending at `today`. */
 export function getMockMetrics(today: string = todayIso()): HealthMetricsPayload {
   const history7Days = lastDays(today, HISTORY.length).map((date, i) => ({
@@ -109,5 +137,6 @@ export function getMockMetrics(today: string = todayIso()): HealthMetricsPayload
     intradayHeartRate: MOCK_INTRADAY_HEART_RATE,
     history7Days,
     freshness: { syncedToday: true, fallbackDate: null },
+    todayWorkouts: [MOCK_TODAY_WORKOUT],
   };
 }

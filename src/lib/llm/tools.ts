@@ -77,7 +77,7 @@ const sleepRating = (score: number) => (score >= 85 ? "Excellent" : score >= 75 
 
 const handlers: Record<string, ToolHandler> = {
   async get_today_health_summary(args, ctx) {
-    const { today: t, history7Days } = await metricsFor(ctx);
+    const { today: t, history7Days, todayWorkouts = [] } = await metricsFor(ctx);
     const readiness = calculateReadiness(t, history7Days);
     const factor = (f: { score: number; max: number; valueFormatted: string; status: string }) =>
       `${f.score}/${f.max} (${f.valueFormatted} - ${f.status})`;
@@ -114,12 +114,24 @@ const handlers: Record<string, ToolHandler> = {
             vitalityStrain: factor(readiness.factors.vitality),
           },
         },
+        workouts: todayWorkouts.map((w) => ({
+          activity: w.activityType,
+          duration: formatDuration(w.durationMinutes),
+          peakHeartRateBpm: w.peakHeartRate,
+          averageHeartRateBpm: w.averageHeartRate,
+          caloriesBurned: w.caloriesBurned,
+          activeZoneMinutes: w.activeZoneMinutes,
+          distanceKm: w.distanceKm,
+          pace: w.paceFormatted,
+          time: `${w.startTime} – ${w.endTime}`,
+          device: w.sourceDevice,
+        })),
       },
       summary: {
         name: "get_today_health_summary",
         label: "Queried Today's Health Summary",
         args,
-        resultSummary: `${readiness.score}/100 Readiness (${readiness.tier.label}), ${t.steps.toLocaleString()} steps, ${withUnit(t.restingHeartRate, "bpm")} resting HR, ${formatDuration(t.sleepDurationMinutes)} sleep (score ${t.sleepScore})`,
+        resultSummary: `${readiness.score}/100 Readiness (${readiness.tier.label}), ${t.steps.toLocaleString()} steps, ${withUnit(t.restingHeartRate, "bpm")} resting HR, ${formatDuration(t.sleepDurationMinutes)} sleep${todayWorkouts.length ? `, workout: ${todayWorkouts[0].activityType} (${formatDuration(todayWorkouts[0].durationMinutes)}, peak ${todayWorkouts[0].peakHeartRate} bpm)` : ""}`,
       },
     };
   },
