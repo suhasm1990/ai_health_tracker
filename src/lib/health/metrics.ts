@@ -38,6 +38,9 @@ const BODY_TTL_MS = 60 * 60 * 1000;
 const ROLLUP_TYPES = ["steps", "total-calories", "distance", "active-zone-minutes", "heart-rate", "floors"] as const;
 const KM_PER_STEP = 0.00075;
 const ROLLUP_CHUNK_DAYS = 30;
+/** dailyRollUp caps these types at a 14-day range (HTTP 400 beyond it). */
+const SHORT_RANGE_TYPES: ReadonlySet<string> = new Set(["heart-rate", "total-calories"]);
+const SHORT_RANGE_CHUNK_DAYS = 14;
 /** Days requested from Google when older days come from storage. */
 const LIVE_LOOKBACK_DAYS = 4;
 
@@ -187,15 +190,18 @@ function buildDay(src: DaySources, iso: string, today: string, lookup: Lookup = 
 
 /** Daily rollups of every type over an ISO range, requested in chunks so long backfills stay within API window limits. */
 async function fetchRollups(token: string, startIso: string, endIso: string) {
-  const chunks: [string, string][] = [];
-  for (let from = startIso; from <= endIso; from = shiftIso(from, ROLLUP_CHUNK_DAYS)) {
-    const to = shiftIso(from, ROLLUP_CHUNK_DAYS - 1);
-    chunks.push([from, to < endIso ? to : endIso]);
-  }
+  const chunksOf = (days: number) => {
+    const chunks: [string, string][] = [];
+    for (let from = startIso; from <= endIso; from = shiftIso(from, days)) {
+      const to = shiftIso(from, days - 1);
+      chunks.push([from, to < endIso ? to : endIso]);
+    }
+    return chunks;
+  };
   return Promise.all(
     ROLLUP_TYPES.map(async (type) => {
       const merged: DateIndex = new Map();
-      for (const [from, to] of chunks) {
+      for (const [from, to] of chunksOf(SHORT_RANGE_TYPES.has(type) ? SHORT_RANGE_CHUNK_DAYS : ROLLUP_CHUNK_DAYS)) {
         for (const [iso, pt] of indexByDate(await api.dailyRollup(token, type, isoToCivil(from), isoToCivil(to)))) merged.set(iso, pt);
       }
       return merged;

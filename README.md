@@ -42,7 +42,7 @@ Custom OpenAI-compatible endpoints: set `LLM_PROVIDER`, `LLM_API_KEY`, `LLM_MODE
 Set `DATABASE_URL` (Neon, Supabase, or local Postgres), and the build applies migrations automatically (or run `npm run db:migrate` by hand). Without it the app behaves as before.
 
 - **Stored:** daily summaries, workouts, and the refresh token (AES-256-GCM encrypted) used for nightly sync.
-- **Backfill:** the last 90 days are imported after you connect.
+- **Backfill:** the last 30 days are imported after you connect.
 - **Nightly sync:** Vercel Cron calls `/api/cron/sync` (requires `CRON_SECRET`).
 - **Baselines:** personal 30-day averages computed from stored history.
 

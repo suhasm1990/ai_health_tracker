@@ -10,7 +10,7 @@ import type { DailyMetricSummary, HealthMetricsPayload } from "./types";
 import { shiftIso, todayIso } from "./utils";
 
 /** Days fetched for a newly connected user. */
-export const BACKFILL_DAYS = 90;
+export const BACKFILL_DAYS = 30;
 /** The nightly sync re-reads a few days so late device syncs still land. */
 const SYNC_LOOKBACK_DAYS = 3;
 const SYNC_CONCURRENCY = 4;
@@ -178,7 +178,7 @@ export async function readStoredHistory(state: AuthState, today: string): Promis
 /**
  * Completes a freshly fetched payload: swaps in the 30-day baseline once enough days
  * are stored, and after the response saves the days that came from Google, the
- * shared snapshot, and (on first sight) a 90-day backfill.
+ * shared snapshot, and (on first sight) a 30-day backfill.
  */
 export function finishLiveLoad(
   state: AuthState,

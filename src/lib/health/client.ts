@@ -165,7 +165,10 @@ export async function request(token: string, path: string, method = "GET", body?
 async function read<T>(token: string, path: string, method = "GET", body?: unknown): Promise<T | null> {
   try {
     const res = await request(token, path, method, body);
-    if (!res.ok) console.warn(`Google Health ${method} ${path} -> HTTP ${res.status}`);
+    if (!res.ok) {
+      const message = (res.data as { error?: { message?: string } } | null)?.error?.message;
+      console.warn(`Google Health ${method} ${path} -> HTTP ${res.status}${message ? `: ${message}` : ""}`);
+    }
     return res.ok ? (res.data as T) : null;
   } catch (err) {
     console.warn(`Google Health ${method} ${path} failed:`, err);
