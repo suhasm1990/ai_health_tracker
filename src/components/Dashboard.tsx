@@ -137,7 +137,7 @@ export function Dashboard({ initialAuthStatus, initialDevices, initialMetrics, i
   const [shareOpen, setShareOpen] = useState(false);
   const chat = useRef<ChatAssistantHandle>(null);
 
-  const { today, history7Days, freshness } = metrics;
+  const { today, history7Days, baseline, freshness } = metrics;
   const userName = authStatus.user?.displayName;
   const readingsFrom = freshness.fallbackDate ? formatShortDate(freshness.fallbackDate) : null;
   const showStaleNotice = !authStatus.isDemo && !isInitialLoading && !freshness.syncedToday;
@@ -202,8 +202,8 @@ export function Dashboard({ initialAuthStatus, initialDevices, initialMetrics, i
 
         {showStaleNotice && <StaleDataNotice freshness={freshness} readingsFrom={readingsFrom} onRefresh={() => refreshAll()} />}
 
-        <ReadinessScore today={today} history7Days={history7Days} />
-        <DailyBriefing today={today} history7Days={history7Days} userName={userName} onOpenChatWithPrompt={(text) => chat.current?.ask(text)} />
+        <ReadinessScore today={today} history7Days={history7Days} baseline={baseline} />
+        <DailyBriefing today={today} history7Days={history7Days} baseline={baseline} userName={userName} onOpenChatWithPrompt={(text) => chat.current?.ask(text)} />
         <HabitStreaks today={today} history7Days={history7Days} />
         <TodayActivity workouts={metrics.todayWorkouts} today={today} />
 

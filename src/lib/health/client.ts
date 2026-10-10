@@ -115,6 +115,7 @@ export interface RollupPoint {
 
 export interface DataPointsResponse {
   dataPoints?: DataPoint[];
+  nextPageToken?: string;
 }
 
 export interface RollupResponse {
@@ -172,8 +173,23 @@ async function read<T>(token: string, path: string, method = "GET", body?: unkno
   }
 }
 
-export const listDataPoints = (token: string, dataType: string, pageSize: number) =>
-  read<DataPointsResponse>(token, `/users/me/dataTypes/${dataType}/dataPoints?pageSize=${pageSize}`);
+export const listDataPoints = (token: string, dataType: string, pageSize: number, pageToken?: string) =>
+  read<DataPointsResponse>(
+    token,
+    `/users/me/dataTypes/${dataType}/dataPoints?pageSize=${pageSize}${pageToken ? `&pageToken=${encodeURIComponent(pageToken)}` : ""}`
+  );
+
+/** Newest-first data points across pages until `maxItems` are collected or the list ends. */
+export async function listDataPointsPaged(token: string, dataType: string, pageSize: number, maxItems: number): Promise<DataPoint[]> {
+  const points: DataPoint[] = [];
+  let pageToken: string | undefined;
+  do {
+    const page = await listDataPoints(token, dataType, pageSize, pageToken);
+    points.push(...(page?.dataPoints ?? []));
+    pageToken = page?.nextPageToken;
+  } while (pageToken && points.length < maxItems);
+  return points;
+}
 
 export const listPairedDevices = (token: string) => read<PairedDevicesResponse>(token, "/users/me/pairedDevices");
 

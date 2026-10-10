@@ -3,12 +3,14 @@
 import { ChevronRight, Coffee, Heart, Moon, RefreshCw, Sparkles, Sun, Sunset, Zap, type LucideIcon } from "lucide-react";
 import { useMemo, useState, useSyncExternalStore } from "react";
 import { renderInline } from "@/lib/markdown";
-import type { DailyMetricSummary } from "@/lib/types";
+import type { DailyMetricSummary, PersonalBaseline } from "@/lib/types";
+import { baselineLabel } from "@/lib/baseline";
 import { formatDuration, meanOf, restorativeMinutes, withUnit } from "@/lib/utils";
 
 interface DailyBriefingProps {
   today: DailyMetricSummary;
   history7Days: DailyMetricSummary[];
+  baseline: PersonalBaseline;
   userName?: string;
   onOpenChatWithPrompt: (prompt: string) => void;
 }
@@ -57,7 +59,7 @@ const useClientHour = () => useSyncExternalStore(noopSubscribe, () => new Date()
 const BOLD = { strong: "text-white font-semibold" };
 const BOLD_ACCENT = { strong: "text-emerald-300 font-semibold" };
 
-export function DailyBriefing({ today, history7Days, userName, onOpenChatWithPrompt }: DailyBriefingProps) {
+export function DailyBriefing({ today, history7Days, baseline, userName, onOpenChatWithPrompt }: DailyBriefingProps) {
   const [isRegenerating, setIsRegenerating] = useState(false);
   const [, setEdition] = useState(0); // bumping re-renders, which re-reads the clock
   const hour = useClientHour();
@@ -76,16 +78,17 @@ export function DailyBriefing({ today, history7Days, userName, onOpenChatWithPro
     const actionTip = MOVEMENT_TIPS[bucket][greeting.period](ctx);
 
     const rhr = today.restingHeartRate;
-    const baselineRhr = meanOf(history7Days, (d) => d.restingHeartRate);
+    const baselineRhr = baseline.restingHeartRate ?? meanOf(history7Days, (d) => d.restingHeartRate);
+    const label = baselineLabel(baseline);
     let hrTrendText = rhr ? `Resting heart rate logged at **${rhr} bpm**.` : "";
     if (rhr && baselineRhr) {
       const diff = rhr - baselineRhr;
       hrTrendText =
         diff <= -2
-          ? `Your resting heart rate is **${rhr} bpm**, running **${Math.abs(diff)} bpm lower than your 7-day average (${baselineRhr} bpm)**, signaling strong parasympathetic autonomic recovery.`
+          ? `Your resting heart rate is **${rhr} bpm**, running **${Math.abs(diff)} bpm lower than your ${label} average (${baselineRhr} bpm)**, signaling strong parasympathetic autonomic recovery.`
           : diff >= 3
-            ? `Your resting heart rate is **${rhr} bpm** (slightly elevated by **${diff} bpm** vs your 7-day baseline of ${baselineRhr} bpm), suggesting mild physiological strain or delayed recovery.`
-            : `Your resting heart rate of **${rhr} bpm** aligns closely with your 7-day baseline (${baselineRhr} bpm), reflecting balanced cardiovascular homeostasis.`;
+            ? `Your resting heart rate is **${rhr} bpm** (slightly elevated by **${diff} bpm** vs your ${label} baseline of ${baselineRhr} bpm), suggesting mild physiological strain or delayed recovery.`
+            : `Your resting heart rate of **${rhr} bpm** aligns closely with your ${label} baseline (${baselineRhr} bpm), reflecting balanced cardiovascular homeostasis.`;
     }
 
     const sleepMins = today.sleepDurationMinutes;
@@ -116,12 +119,12 @@ export function DailyBriefing({ today, history7Days, userName, onOpenChatWithPro
         title: "Analyze My Cardiac Recovery",
         icon: Heart,
         color: "text-rose-400 bg-rose-500/10 border-rose-500/20 hover:bg-rose-500/20",
-        prompt: `Analyze my resting heart rate trend (${rhr ? `${rhr} bpm` : "recent readings"} vs 7-day average ${baselineRhr ? `${baselineRhr} bpm` : "baseline"}). What does this mean for my cardiovascular fitness and stress recovery?`,
+        prompt: `Analyze my resting heart rate trend (${rhr ? `${rhr} bpm` : "recent readings"} vs ${label} average ${baselineRhr ? `${baselineRhr} bpm` : "baseline"}). What does this mean for my cardiovascular fitness and stress recovery?`,
       },
     ];
 
     return { sleepText, hrTrendText, actionTip, prompts };
-  }, [today, history7Days, greeting.period]);
+  }, [today, history7Days, baseline, greeting.period]);
 
   const regenerate = () => {
     setIsRegenerating(true);

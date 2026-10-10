@@ -1,5 +1,6 @@
 import type { AuthState } from "../auth";
 import { getAllHealthMetrics, getPairedDevices } from "../health";
+import { baselineLabel } from "../baseline";
 import { calculateReadiness } from "../readiness";
 import { formatDuration, meanOf, withUnit } from "../utils";
 import type { ToolDefinition, ToolExecutionSummary } from "./types";
@@ -77,8 +78,8 @@ const sleepRating = (score: number) => (score >= 85 ? "Excellent" : score >= 75 
 
 const handlers: Record<string, ToolHandler> = {
   async get_today_health_summary(args, ctx) {
-    const { today: t, history7Days, todayWorkouts = [] } = await metricsFor(ctx);
-    const readiness = calculateReadiness(t, history7Days);
+    const { today: t, history7Days, baseline, todayWorkouts = [] } = await metricsFor(ctx);
+    const readiness = calculateReadiness(t, history7Days, baseline);
     const factor = (f: { score: number; max: number; valueFormatted: string; status: string }) =>
       `${f.score}/${f.max} (${f.valueFormatted} - ${f.status})`;
     return {
@@ -102,6 +103,14 @@ const handlers: Record<string, ToolHandler> = {
         weightKg: t.weightKg,
         bmi: t.bmi,
         sleep: { duration: formatDuration(t.sleepDurationMinutes), durationMinutes: t.sleepDurationMinutes, score: t.sleepScore },
+        baseline: {
+          window: baselineLabel(baseline),
+          daysOfHistory: baseline.days,
+          restingHeartRateBpm: baseline.restingHeartRate,
+          heartRateVariabilityMs: baseline.heartRateVariability,
+          sleepMinutes: baseline.sleepMinutes,
+          steps: baseline.steps,
+        },
         readiness: {
           score: readiness.score,
           tier: readiness.tier.label,

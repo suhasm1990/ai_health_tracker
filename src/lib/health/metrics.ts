@@ -1,8 +1,10 @@
 import { AuthError, getAuthState, getValidAccessToken, type AuthState } from "../auth";
+import { recentBaseline } from "../baseline";
 import { cached } from "../cache";
+import { finishLiveLoad, readStoredHistory } from "../history";
 import { HISTORY_DAYS } from "../constants";
 import { getMockMetrics } from "../mockData";
-import type { DailyMetricSummary, HealthMetricsPayload, IntradayHeartRatePoint, IntradayStepPoint } from "../types";
+import type { DailyMetricSummary, HealthMetricsPayload, IntradayHeartRatePoint, IntradayStepPoint, WorkoutSession } from "../types";
 import {
   civilInZone,
   civilToIso,
@@ -20,7 +22,7 @@ import {
   type CivilDate,
 } from "../utils";
 import * as api from "./client";
-import { parseSleepRecords } from "./sleep";
+import { parseSleepRecords, type SleepRecord } from "./sleep";
 import { parseWorkouts } from "./workouts";
 
 export interface MetricsQuery {
@@ -35,18 +37,39 @@ const METRICS_TTL_MS = 60_000;
 const BODY_TTL_MS = 60 * 60 * 1000;
 const ROLLUP_TYPES = ["steps", "total-calories", "distance", "active-zone-minutes", "heart-rate", "floors"] as const;
 const KM_PER_STEP = 0.00075;
+const ROLLUP_CHUNK_DAYS = 30;
+/** Days requested from Google when older days come from storage. */
+const LIVE_LOOKBACK_DAYS = 4;
 
 /**
- * Unified health payload: today's summary, intraday series and 7-day history.
+ * Unified health payload: today's summary, intraday series, 7-day history and personal baseline.
  * Cached for 60s per user and date; concurrent callers share one upstream batch.
+ * With a database configured, completed days are stored and the baseline spans 30 days.
  */
 export async function getAllHealthMetrics(query: MetricsQuery = {}, auth?: AuthState): Promise<HealthMetricsPayload> {
   const state = auth ?? (await getAuthState());
   const today = isValidIsoDate(query.clientDate) ? query.clientDate : todayIso(query.clientTz);
   if (state.isDemo) return getMockMetrics(today);
-  return cached(`${state.scope}:metrics:${today}`, METRICS_TTL_MS, () => loadLiveMetrics(state, today, query.clientTz), {
+  return cached(`${state.scope}:metrics:${today}`, METRICS_TTL_MS, () => loadMetrics(state, today, query), {
     force: query.forceRefresh,
   });
+}
+
+/**
+ * Serves a shared snapshot fetched in the last few minutes when one exists. Otherwise
+ * fetches from Google, taking settled days (before yesterday) from storage when all
+ * are present so only the recent window is requested.
+ */
+async function loadMetrics(state: AuthState, today: string, query: MetricsQuery): Promise<HealthMetricsPayload> {
+  const stored = await readStoredHistory(state, today);
+  if (stored?.snapshot && !query.forceRefresh) return stored.snapshot;
+
+  const settledBefore = shiftIso(today, -1);
+  const settled = new Map((stored?.days ?? []).filter((d) => d.date < settledBefore).map((d) => [d.date, d]));
+  const useStored = lastDays(today, HISTORY_DAYS).every((iso) => iso >= settledBefore || settled.has(iso));
+  const payload = await loadLiveMetrics(state, today, query.clientTz, useStored ? settled : new Map());
+  const fetchedDays = payload.history7Days.filter((d) => !(useStored && settled.has(d.date)));
+  return finishLiveLoad(state, stored, payload, fetchedDays, query.clientTz);
 }
 
 type DateIndex = Map<string, api.RollupPoint>;
@@ -118,19 +141,124 @@ async function fetchBodyStats(token: string) {
   return { weightKg, heightMeters, bmi };
 }
 
-async function loadLiveMetrics(state: AuthState, today: string, timeZone?: string): Promise<HealthMetricsPayload> {
+/** Per-day indexes for every source a daily summary is built from. */
+interface DaySources {
+  steps: DateIndex;
+  calories: DateIndex;
+  distance: DateIndex;
+  azm: DateIndex;
+  heartRate: DateIndex;
+  floors: DateIndex;
+  sleepByDate: Map<string, SleepRecord>;
+  hrvByDate: Map<string, number>;
+}
+
+/** Looks up a day's value in an index; the live "today" row may substitute the most recent day. */
+type Lookup = <T>(index: Map<string, T>, iso: string) => T | undefined;
+const exact: Lookup = (index, iso) => index.get(iso);
+
+function buildDay(src: DaySources, iso: string, today: string, lookup: Lookup = exact): DailyMetricSummary {
+  const hr = lookup(src.heartRate, iso)?.heartRate;
+  const zones = activeZones(src.azm.get(iso));
+  const daySteps = Number(src.steps.get(iso)?.steps?.countSum ?? 0);
+  const mm = Number(src.distance.get(iso)?.distance?.millimetersSum ?? 0);
+  const night = lookup(src.sleepByDate, iso);
+  return {
+    ...emptyDay(iso, dayLabel(iso, today)),
+    steps: daySteps,
+    caloriesBurned: Math.round(Number(src.calories.get(iso)?.totalCalories?.kcalSum ?? 0)),
+    distanceKm: mm > 0 ? round(mm / 1_000_000, 2) : round(daySteps * KM_PER_STEP, 1),
+    floors: Number(src.floors.get(iso)?.floors?.countSum ?? 0),
+    restingHeartRate: numOrNull(hr?.beatsPerMinuteMin),
+    avgHeartRate: isPositive(hr?.beatsPerMinuteAvg) ? Math.round(hr.beatsPerMinuteAvg) : null,
+    maxHeartRate: numOrNull(hr?.beatsPerMinuteMax),
+    heartRateVariability: src.hrvByDate.get(iso) ?? null,
+    activeZoneMinutes: zones.total,
+    fatBurnMinutes: zones.fatBurn,
+    cardioPeakMinutes: zones.cardioPeak,
+    sleepDurationMinutes: night?.minutesAsleep ?? 0,
+    sleepScore: night?.score ?? 0,
+    sleepEfficiency: night?.efficiency ?? null,
+    sleepStages: night?.stages ?? [],
+    sleepStartTime: night?.startTime ?? null,
+    sleepEndTime: night?.endTime ?? null,
+  };
+}
+
+/** Daily rollups of every type over an ISO range, requested in chunks so long backfills stay within API window limits. */
+async function fetchRollups(token: string, startIso: string, endIso: string) {
+  const chunks: [string, string][] = [];
+  for (let from = startIso; from <= endIso; from = shiftIso(from, ROLLUP_CHUNK_DAYS)) {
+    const to = shiftIso(from, ROLLUP_CHUNK_DAYS - 1);
+    chunks.push([from, to < endIso ? to : endIso]);
+  }
+  return Promise.all(
+    ROLLUP_TYPES.map(async (type) => {
+      const merged: DateIndex = new Map();
+      for (const [from, to] of chunks) {
+        for (const [iso, pt] of indexByDate(await api.dailyRollup(token, type, isoToCivil(from), isoToCivil(to)))) merged.set(iso, pt);
+      }
+      return merged;
+    })
+  );
+}
+
+export interface StoredWorkout {
+  date: string;
+  session: WorkoutSession;
+}
+
+/**
+ * Completed days from `startIso` to `endIso` inclusive, for long-term history.
+ * Unlike the live payload, no reading falls back to another day.
+ */
+export async function fetchDailyRange(
+  token: string,
+  startIso: string,
+  endIso: string,
+  timeZone?: string
+): Promise<{ days: DailyMetricSummary[]; workouts: StoredWorkout[] }> {
+  const dates: string[] = [];
+  for (let iso = startIso; iso <= endIso; iso = shiftIso(iso, 1)) dates.push(iso);
+
+  // Lists are newest first, so the item caps reach back roughly as far as the range does.
+  const [rollups, sleep, dailyHrv, exercise] = await Promise.all([
+    fetchRollups(token, shiftIso(startIso, -1), shiftIso(endIso, 1)),
+    api.listDataPointsPaged(token, "sleep", 25, dates.length * 2 + 10),
+    api.listDataPointsPaged(token, "daily-heart-rate-variability", 25, dates.length + 10),
+    api.listDataPointsPaged(token, "exercise", 25, dates.length * 2),
+  ]);
+  const [steps, calories, distance, azm, heartRate, floors] = rollups;
+  const src: DaySources = {
+    steps, calories, distance, azm, heartRate, floors,
+    sleepByDate: parseSleepRecords(sleep, timeZone),
+    hrvByDate: indexDailyHrv(dailyHrv),
+  };
+  return {
+    days: dates.map((iso) => buildDay(src, iso, shiftIso(endIso, 1))),
+    workouts: dates.flatMap((iso) => parseWorkouts(exercise, iso, timeZone).map((session) => ({ date: iso, session }))),
+  };
+}
+
+/** Fetches today's payload; days found in `settled` are reused instead of requested. */
+async function loadLiveMetrics(
+  state: AuthState,
+  today: string,
+  timeZone: string | undefined,
+  settled: Map<string, DailyMetricSummary>
+): Promise<HealthMetricsPayload> {
   const token = await getValidAccessToken(state.session);
   if (!token) throw new AuthError();
+  const narrow = settled.size > 0;
 
-  // A 15-day civil window (12 back, 2 ahead) covers the 7-day history plus UTC/civil skew at either end.
-  const rangeStart = isoToCivil(shiftIso(today, -12));
-  const rangeEnd = isoToCivil(shiftIso(today, 2));
   const intradayWindow = { start: new Date(`${shiftIso(today, -1)}T00:00:00Z`), end: new Date(`${shiftIso(today, 1)}T23:59:59Z`) };
 
   const [rollups, sleep, dailyHrv, spo2, body, exercise, intradaySteps, intradayHeartRate] = await Promise.all([
-    Promise.all(ROLLUP_TYPES.map((type) => api.dailyRollup(token, type, rangeStart, rangeEnd).then(indexByDate))),
-    api.listDataPoints(token, "sleep", 20),
-    api.listDataPoints(token, "daily-heart-rate-variability", 10),
+    // The full window (12 back, 2 ahead) covers the 7-day history plus UTC/civil skew at either end;
+    // with settled days stored, a few days back still covers yesterday and today's fallback readings.
+    fetchRollups(token, shiftIso(today, narrow ? -LIVE_LOOKBACK_DAYS : -12), shiftIso(today, 2)),
+    api.listDataPoints(token, "sleep", narrow ? 6 : 20),
+    api.listDataPoints(token, "daily-heart-rate-variability", narrow ? 4 : 10),
     api.listDataPoints(token, "oxygen-saturation", 20),
     // Weight and height change rarely: keep them for an hour instead of refetching every load.
     cached(`${state.scope}:body`, BODY_TTL_MS, () => fetchBodyStats(token)),
@@ -139,8 +267,11 @@ async function loadLiveMetrics(state: AuthState, today: string, timeZone?: strin
     fetchIntradayHeartRate(token, intradayWindow, today, timeZone),
   ]);
   const [steps, calories, distance, azm, heartRate, floors] = rollups;
-  const sleepByDate = parseSleepRecords(sleep?.dataPoints ?? [], timeZone);
-  const hrvByDate = indexDailyHrv(dailyHrv?.dataPoints ?? []);
+  const src: DaySources = {
+    steps, calories, distance, azm, heartRate, floors,
+    sleepByDate: parseSleepRecords(sleep?.dataPoints ?? [], timeZone),
+    hrvByDate: indexDailyHrv(dailyHrv?.dataPoints ?? []),
+  };
   const todayWorkouts = parseWorkouts(exercise?.dataPoints ?? [], today, timeZone, intradayHeartRate);
 
   /**
@@ -150,54 +281,35 @@ async function loadLiveMetrics(state: AuthState, today: string, timeZone?: strin
    * fall back: before a sync, today's true value is zero.
    */
   const fallbackDates: string[] = [];
-  const reading = <T,>(index: Map<string, T>, iso: string, allowFallback: boolean): T | undefined => {
-    const exact = index.get(iso);
-    if (exact !== undefined || !allowFallback) return exact;
+  const withFallback: Lookup = (index, iso) => {
+    const value = index.get(iso);
+    if (value !== undefined) return value;
     const recent = latest(index);
     if (recent) fallbackDates.push(recent[0]);
     return recent?.[1];
   };
 
-  const buildDay = (iso: string, fallbackToLatest = false): DailyMetricSummary => {
-    const hr = reading(heartRate, iso, fallbackToLatest)?.heartRate;
-    const zones = activeZones(azm.get(iso));
-    const daySteps = Number(steps.get(iso)?.steps?.countSum ?? 0);
-    const mm = Number(distance.get(iso)?.distance?.millimetersSum ?? 0);
-    const night = reading(sleepByDate, iso, fallbackToLatest);
-    return {
-      ...emptyDay(iso, dayLabel(iso, today)),
-      steps: daySteps,
-      caloriesBurned: Math.round(Number(calories.get(iso)?.totalCalories?.kcalSum ?? 0)),
-      distanceKm: mm > 0 ? round(mm / 1_000_000, 2) : round(daySteps * KM_PER_STEP, 1),
-      floors: Number(floors.get(iso)?.floors?.countSum ?? 0),
-      restingHeartRate: numOrNull(hr?.beatsPerMinuteMin),
-      avgHeartRate: isPositive(hr?.beatsPerMinuteAvg) ? Math.round(hr.beatsPerMinuteAvg) : null,
-      maxHeartRate: numOrNull(hr?.beatsPerMinuteMax),
-      heartRateVariability: hrvByDate.get(iso) ?? null,
-      activeZoneMinutes: zones.total,
-      fatBurnMinutes: zones.fatBurn,
-      cardioPeakMinutes: zones.cardioPeak,
-      sleepDurationMinutes: night?.minutesAsleep ?? 0,
-      sleepScore: night?.score ?? 0,
-      sleepEfficiency: night?.efficiency ?? null,
-      sleepStages: night?.stages ?? [],
-      sleepStartTime: night?.startTime ?? null,
-      sleepEndTime: night?.endTime ?? null,
-    };
-  };
-
   // Raw HRV samples are only requested when no daily summary covers today.
   const heartRateVariability =
-    reading(hrvByDate, today, true) ?? latestRawHrv((await api.listDataPoints(token, "heart-rate-variability", 20))?.dataPoints ?? []);
-  const todayRow: DailyMetricSummary = { ...buildDay(today, true), heartRateVariability, ...oxygenStats(spo2?.dataPoints ?? [], today), ...body };
-  const history7Days = lastDays(today, HISTORY_DAYS).map((iso) => (iso === today ? todayRow : buildDay(iso)));
+    withFallback(src.hrvByDate, today) ?? latestRawHrv((await api.listDataPoints(token, "heart-rate-variability", 20))?.dataPoints ?? []);
+  const todayRow: DailyMetricSummary = {
+    ...buildDay(src, today, today, withFallback),
+    heartRateVariability,
+    ...oxygenStats(spo2?.dataPoints ?? [], today),
+    ...body,
+  };
+  const history7Days = lastDays(today, HISTORY_DAYS).map((iso) => {
+    if (iso === today) return todayRow;
+    const stored = settled.get(iso);
+    return stored ? { ...stored, label: dayLabel(iso, today) } : buildDay(src, iso, today);
+  });
 
   const freshness = {
     syncedToday: rollups.some((index) => index.has(today)),
     fallbackDate: fallbackDates.sort().pop() ?? null,
   };
 
-  return { today: todayRow, intradaySteps, intradayHeartRate, history7Days, freshness, todayWorkouts };
+  return { today: todayRow, intradaySteps, intradayHeartRate, history7Days, freshness, todayWorkouts, baseline: recentBaseline(history7Days, today) };
 }
 
 /* ---------- intraday series ---------- */

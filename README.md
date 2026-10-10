@@ -24,6 +24,8 @@ Other scripts: `npm run build`, `npm start`, `npm run lint`.
 | `GOOGLE_REDIRECT_URI` | For live data | `http://localhost:3000/api/auth/callback` locally; on Vercel it is derived automatically |
 | `SESSION_SECRET` | Production | Encrypts the session cookie (`openssl rand -hex 32`) |
 | `GOOGLE_HEALTH_API_VERSION` | No | Defaults to `v4` |
+| `DATABASE_URL` | No | Postgres connection string. Enables history, baselines, and nightly sync. Without it only the live 7-day window is used |
+| `CRON_SECRET` | With `DATABASE_URL` on Vercel | Protects `/api/cron/sync`; Vercel Cron sends it as a Bearer token |
 | `NVIDIA_API_KEY` **or** `GEMINI_API_KEY` **or** `OPENAI_API_KEY` | No | Enables the AI coach. Without a key an offline advisor answers from the same data |
 
 Custom OpenAI-compatible endpoints: set `LLM_PROVIDER`, `LLM_API_KEY`, `LLM_MODEL`, `LLM_BASE_URL`.
@@ -34,6 +36,17 @@ Custom OpenAI-compatible endpoints: set `LLM_PROVIDER`, `LLM_API_KEY`, `LLM_MODE
 2. OAuth consent screen: type **External**, add your account as a test user.
 3. Create an **OAuth Client ID** (Web application) with redirect URI `http://localhost:3000/api/auth/callback` (and your production URL).
 4. Copy the client ID and secret into `.env.local`.
+
+## Database (optional)
+
+Set `DATABASE_URL` (Neon, Supabase, or local Postgres), then run `npm run db:migrate`. Without it the app behaves as before.
+
+- **Stored:** daily summaries, workouts, and the refresh token (AES-256-GCM encrypted) used for nightly sync.
+- **Backfill:** the last 90 days are imported after you connect.
+- **Nightly sync:** Vercel Cron calls `/api/cron/sync` (requires `CRON_SECRET`).
+- **Baselines:** personal 30-day averages computed from stored history.
+
+Other scripts: `npm run db:generate` (new migration after schema edits), `npm run db:studio`.
 
 ## Features
 
@@ -46,6 +59,7 @@ Custom OpenAI-compatible endpoints: set `LLM_PROVIDER`, `LLM_API_KEY`, `LLM_MODE
 ## How it works
 
 ```text
+drizzle/           SQL migrations (drizzle-kit)
 src/
 ├── app/           page.tsx (server-rendered) + api/ routes: auth, health/{metrics,devices,raw}, chat
 ├── components/    UI; ui/ holds shared primitives (Panel, StatTile, ViewToggle, …)
@@ -53,6 +67,7 @@ src/
 └── lib/
     ├── auth.ts, session.ts     OAuth, token refresh, AES-256-GCM encrypted HTTP-only cookie
     ├── health/                 Google Health client, metrics assembly, sleep scoring, device discovery
+    ├── db/                     optional Postgres persistence (Drizzle schema + lazy client)
     ├── llm/                    provider-agnostic tool-calling loop + offline advisor
     ├── readiness.ts            readiness algorithm (pure)
     └── cache.ts, mockData.ts, utils.ts, constants.ts, types.ts

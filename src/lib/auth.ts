@@ -43,7 +43,8 @@ export interface AuthState {
 
 export async function getAuthState(): Promise<AuthState> {
   const session = await getSession();
-  const isAuthenticated = Boolean(session?.access_token);
+  // A stored token only counts if it is still valid or can be refreshed; otherwise the UI must offer "Connect Google" again.
+  const isAuthenticated = Boolean(await getValidAccessToken(session));
   return {
     session,
     isAuthenticated,
@@ -98,7 +99,8 @@ export async function exchangeCodeForSession(code: string): Promise<UserSession>
 // Collapse concurrent refreshes of the same token into one network call.
 const refreshes = new Map<string, Promise<string | null>>();
 
-async function refreshAccessToken(refreshToken: string): Promise<string | null> {
+/** Exchanges a refresh token for an access token; also used by the nightly sync, where no session cookie exists. */
+export async function refreshAccessToken(refreshToken: string): Promise<string | null> {
   const pending = refreshes.get(refreshToken);
   if (pending) return pending;
   const promise = requestToken({ refresh_token: refreshToken, grant_type: "refresh_token" })
@@ -131,7 +133,7 @@ export async function fetchGoogleProfile(accessToken: string): Promise<UserProfi
     const data = await res.json();
     return {
       id: data.sub || "me",
-      displayName: data.name || data.given_name || "Google Health User",
+      displayName: data.name || data.given_name || "AI Health Tracker User",
       email: data.email || "",
       avatarUrl: data.picture || undefined,
     };
@@ -144,7 +146,7 @@ export async function fetchGoogleProfile(accessToken: string): Promise<UserProfi
 /** Profile from the session when available, otherwise from Google (cached 5 minutes). */
 export async function getUserProfile(state: AuthState, force = false): Promise<UserProfile | null> {
   const { session } = state;
-  if (!session?.access_token) return null;
+  if (!state.isAuthenticated || !session) return null;
   if (session.user?.displayName && !force) {
     return { id: session.user.id || "me", displayName: session.user.displayName, email: session.user.email || "", avatarUrl: session.user.avatarUrl };
   }
