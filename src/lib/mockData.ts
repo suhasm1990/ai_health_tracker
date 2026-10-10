@@ -1,4 +1,5 @@
 import { GOALS } from "./constants";
+import { recentBaseline } from "./baseline";
 import { dayLabel, emptyDay, lastDays, todayIso, zoneForBpm } from "./utils";
 import type {
   DailyMetricSummary,
@@ -136,6 +137,7 @@ export function getMockMetrics(today: string = todayIso()): HealthMetricsPayload
     intradaySteps: MOCK_INTRADAY_STEPS,
     intradayHeartRate: MOCK_INTRADAY_HEART_RATE,
     history7Days,
+    baseline: recentBaseline(history7Days, today),
     freshness: { syncedToday: true, fallbackDate: null },
     todayWorkouts: [MOCK_TODAY_WORKOUT],
   };

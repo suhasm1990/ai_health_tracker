@@ -21,7 +21,7 @@ export interface UserSession {
   };
 }
 
-export const SESSION_COOKIE = "gh_session";
+export const SESSION_COOKIE = "aht_session";
 const SESSION_MAX_AGE = 60 * 60 * 24 * 30; // 30 days
 
 export const cookieOptions = (maxAge: number) => ({
@@ -41,27 +41,42 @@ function getEncryptionKey(): Buffer {
     throw new Error("SESSION_SECRET (or GOOGLE_CLIENT_SECRET) must be set in production to encrypt session cookies.");
   }
   encryptionKey = Buffer.from(
-    crypto.hkdfSync("sha256", secret || "google-health-dev-local-secret", "google-health-salt", "session-encryption-key", 32)
+    crypto.hkdfSync("sha256", secret || "ai-health-tracker-dev-local-secret", "ai-health-tracker-salt", "session-encryption-key", 32)
   );
   return encryptionKey;
 }
 
-export function encryptSession(session: UserSession): string {
+/** AES-256-GCM; output is `iv.tag.ciphertext` (base64url). */
+export function encryptString(plain: string): string {
   const iv = crypto.randomBytes(12);
   const cipher = crypto.createCipheriv("aes-256-gcm", getEncryptionKey(), iv);
-  const ciphertext = Buffer.concat([cipher.update(JSON.stringify(session), "utf8"), cipher.final()]);
+  const ciphertext = Buffer.concat([cipher.update(plain, "utf8"), cipher.final()]);
   return [iv, cipher.getAuthTag(), ciphertext].map((b) => b.toString("base64url")).join(".");
 }
 
 /** Returns null for missing, malformed or tampered tokens. */
-export function decryptSession(token: string | undefined): UserSession | null {
+export function decryptString(token: string | undefined): string | null {
   if (!token) return null;
   try {
     const [iv, tag, ciphertext] = token.split(".").map((part) => Buffer.from(part, "base64url"));
     if (iv?.length !== 12 || tag?.length !== 16 || !ciphertext) return null;
     const decipher = crypto.createDecipheriv("aes-256-gcm", getEncryptionKey(), iv);
     decipher.setAuthTag(tag);
-    const plain = Buffer.concat([decipher.update(ciphertext), decipher.final()]).toString("utf8");
+    return Buffer.concat([decipher.update(ciphertext), decipher.final()]).toString("utf8");
+  } catch {
+    return null;
+  }
+}
+
+export function encryptSession(session: UserSession): string {
+  return encryptString(JSON.stringify(session));
+}
+
+/** Returns null for missing, malformed or tampered tokens. */
+export function decryptSession(token: string | undefined): UserSession | null {
+  const plain = decryptString(token);
+  if (plain === null) return null;
+  try {
     return JSON.parse(plain) as UserSession;
   } catch {
     return null;

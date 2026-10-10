@@ -59,7 +59,7 @@ export function ChatAssistant({ ref, llm }: ChatAssistantProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
   const [input, setInput] = useState("");
-  const [provider, setProvider] = useState({ name: llm?.provider ?? "Sandbox Health Advisor", model: llm?.model ?? "google-health-agent" });
+  const [provider, setProvider] = useState({ name: llm?.provider ?? "Sandbox Health Advisor", model: llm?.model ?? "ai-health-tracker-agent" });
   const [messages, setMessages] = useState<MessageItem[]>(() => [assistantMessage(WELCOME, { id: "welcome" })]);
   /** Conversation awaiting a reply; non-null while a request is in flight. */
   const [pending, setPending] = useState<MessageItem[] | null>(null);

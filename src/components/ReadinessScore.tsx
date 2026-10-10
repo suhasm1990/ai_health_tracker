@@ -4,12 +4,13 @@ import { Activity, Flame, Heart, Moon, Sparkles, Zap, type LucideIcon } from "lu
 import { useEffect, useMemo, useState } from "react";
 import { GOALS } from "@/lib/constants";
 import { calculateReadiness, type ReadinessBreakdown, type ReadinessFactor, type ReadinessTheme } from "@/lib/readiness";
-import type { DailyMetricSummary } from "@/lib/types";
+import type { DailyMetricSummary, PersonalBaseline } from "@/lib/types";
 import { formatDuration, pct } from "@/lib/utils";
 
 interface ReadinessScoreProps {
   today: DailyMetricSummary;
   history7Days: DailyMetricSummary[];
+  baseline: PersonalBaseline;
 }
 
 const TIER_STYLES: Record<ReadinessTheme, { badge: string; glow: string }> = {
@@ -38,7 +39,7 @@ const STROKE = 10;
 const OUTER_RADIUS = CENTER - STROKE / 2 - 8;
 const RING_GAP = STROKE + 4;
 
-export function ReadinessScore({ today, history7Days }: ReadinessScoreProps) {
+export function ReadinessScore({ today, history7Days, baseline }: ReadinessScoreProps) {
   // Rings sweep in after mount.
   const [mounted, setMounted] = useState(false);
   useEffect(() => {
@@ -46,7 +47,8 @@ export function ReadinessScore({ today, history7Days }: ReadinessScoreProps) {
     return () => clearTimeout(timer);
   }, []);
 
-  const { score, tier, factors } = useMemo(() => calculateReadiness(today, history7Days), [today, history7Days]);
+  const { score, tier, factors, baselineLabel } = useMemo(() => calculateReadiness(today, history7Days, baseline), [today, history7Days, baseline]);
+  const partialHistory = baseline.source === "stored" && baseline.days < baseline.windowDays;
   const styles = TIER_STYLES[tier.theme];
 
   const rings = [
@@ -124,6 +126,9 @@ export function ReadinessScore({ today, history7Days }: ReadinessScoreProps) {
               );
             })}
           </div>
+          <p className="text-[11px] text-slate-500 dark:text-slate-400">
+            vs your {baselineLabel} baseline{partialHistory ? ` · ${baseline.days} days of history` : ""}
+          </p>
         </div>
 
         <div className="flex flex-row items-center gap-4 sm:gap-7 shrink-0 w-full sm:w-auto justify-center">

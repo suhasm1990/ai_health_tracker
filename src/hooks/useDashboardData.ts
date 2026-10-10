@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { recentBaseline } from "@/lib/baseline";
 import type { AuthStatus, HealthMetricsPayload, PairedDevice } from "@/lib/types";
 import { clientLocale, emptyDay, todayIso } from "@/lib/utils";
 
@@ -18,7 +19,7 @@ const TOAST_MS = 4000;
 async function getJson<T>(url: string, init?: RequestInit): Promise<T> {
   const res = await fetch(url, init);
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error || `Request failed (${res.status})`);
+  if (!res.ok) throw Object.assign(new Error(data.error || `Request failed (${res.status})`), { status: res.status });
   return data as T;
 }
 
@@ -31,16 +32,21 @@ function fetchMetrics(force: boolean): Promise<HealthMetricsPayload> {
   return getJson<HealthMetricsPayload>(`/api/health/metrics?${params}`);
 }
 
-const emptyPayload = (): HealthMetricsPayload => ({
-  today: emptyDay(todayIso(), "Today"),
-  intradaySteps: [],
-  intradayHeartRate: [],
-  history7Days: [],
-  freshness: { syncedToday: false, fallbackDate: null },
-  todayWorkouts: [],
-});
+const emptyPayload = (): HealthMetricsPayload => {
+  const date = todayIso();
+  return {
+    today: emptyDay(date, "Today"),
+    intradaySteps: [],
+    intradayHeartRate: [],
+    history7Days: [],
+    baseline: recentBaseline([], date),
+    freshness: { syncedToday: false, fallbackDate: null },
+    todayWorkouts: [],
+  };
+};
 
 const errorMessage = (err: unknown) => (err instanceof Error ? err.message : "Could not refresh health data");
+const isUnauthorized = (err: unknown) => (err as { status?: number } | null)?.status === 401;
 
 /** Owns dashboard state and all client-side data loading. */
 export function useDashboardData(initial: DashboardInitial) {
@@ -49,6 +55,12 @@ export function useDashboardData(initial: DashboardInitial) {
   const [metrics, setMetrics] = useState(initial.metrics);
   const [isRefreshing, setRefreshing] = useState(initial.metrics === null);
   const [toast, setToast] = useState<string | null>(initial.notice ?? null);
+
+  /** Surfaces a failure; a 401 means the Google session died, so drop the stale profile and show "Connect Google". */
+  const reportError = useCallback((err: unknown) => {
+    if (isUnauthorized(err)) setAuthStatus((prev) => ({ ...prev, isAuthenticated: false, user: undefined, scopesGranted: [] }));
+    setToast(errorMessage(err));
+  }, []);
 
   // Every toast dismisses itself.
   useEffect(() => {
@@ -78,11 +90,11 @@ export function useDashboardData(initial: DashboardInitial) {
       await task();
       if (successMessage) setToast(successMessage);
     } catch (err) {
-      setToast(errorMessage(err));
+      reportError(err);
     } finally {
       setRefreshing(false);
     }
-  }, []);
+  }, [reportError]);
 
   const refreshAll = useCallback(
     (successMessage = "Refreshed latest health metrics") => run(() => Promise.all([loadDevices(true), loadMetrics(true)]), successMessage),
@@ -109,7 +121,7 @@ export function useDashboardData(initial: DashboardInitial) {
     fetchMetrics(false)
       .then(setMetrics, (err: unknown) => {
         setMetrics(emptyPayload());
-        setToast(errorMessage(err));
+        reportError(err);
       })
       .finally(() => setRefreshing(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally runs once on mount

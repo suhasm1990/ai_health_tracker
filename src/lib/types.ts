@@ -115,6 +115,21 @@ export interface DataFreshness {
   fallbackDate: string | null;
 }
 
+/** Personal averages over the days before today, used as the reference for readiness and briefings. */
+export interface PersonalBaseline {
+  /** Requested window length in days, e.g. 30. */
+  windowDays: number;
+  /** Days within the window that actually had data (0 when nothing is stored yet). */
+  days: number;
+  restingHeartRate: number | null;
+  /** RMSSD in ms */
+  heartRateVariability: number | null;
+  sleepMinutes: number | null;
+  steps: number | null;
+  /** "stored": long-term history from the database; "recent": derived from the 7-day window only. */
+  source: "stored" | "recent";
+}
+
 export interface HealthMetricsPayload {
   today: DailyMetricSummary;
   intradaySteps: IntradayStepPoint[];
@@ -122,6 +137,7 @@ export interface HealthMetricsPayload {
   history7Days: DailyMetricSummary[];
   freshness: DataFreshness;
   todayWorkouts: WorkoutSession[];
+  baseline: PersonalBaseline;
 }
 
 export interface UserProfile {

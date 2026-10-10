@@ -25,7 +25,7 @@ TOOL CALLING:
   - Weekly trends, 7-day averages -> 'get_weekly_trends'
   - Connected devices, battery status -> 'get_connected_devices'`;
 
-const MOCK_MODEL = "google-health-agent";
+const MOCK_MODEL = "ai-health-tracker-agent";
 
 const toResponse = (run: AgentRun, provider: string, model: string): AgentResponse => ({
   message: { role: "assistant", content: run.text },

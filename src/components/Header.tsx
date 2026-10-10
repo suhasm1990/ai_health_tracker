@@ -164,7 +164,7 @@ export function Header({ authStatus, devices, isRefreshing, onToggleDemo, onRefr
               <div className="flex items-center space-x-2.5 min-w-0">
                 <Avatar user={user} size="md" />
                 <div className="min-w-0">
-                  <p className="text-xs font-semibold text-slate-900 dark:text-white truncate">{user?.displayName || "Google Health User"}</p>
+                  <p className="text-xs font-semibold text-slate-900 dark:text-white truncate">{user?.displayName || "AI Health Tracker User"}</p>
                   <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">{user?.email || "Connected account"}</p>
                 </div>
               </div>

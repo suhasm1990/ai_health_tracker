@@ -1,5 +1,6 @@
 import { GOALS } from "./constants";
-import type { DailyMetricSummary } from "./types";
+import { baselineLabel as labelOf } from "./baseline";
+import type { DailyMetricSummary, PersonalBaseline } from "./types";
 import { formatDuration, meanOf, restorativeMinutes } from "./utils";
 
 export type ReadinessTheme = "emerald" | "teal" | "amber";
@@ -15,6 +16,8 @@ export interface ReadinessFactor {
 export interface ReadinessBreakdown {
   /** 0-100 */
   score: number;
+  /** Window the personal baseline spans, e.g. "30-day". */
+  baselineLabel: string;
   tier: { label: string; subtitle: string; theme: ReadinessTheme; guidance: string };
   factors: {
     autonomic: ReadinessFactor & { hrvMs: number | null; baselineHrvMs: number; ratio: number; isPeak: boolean };
@@ -30,13 +33,13 @@ export const FACTOR_MAX = { autonomic: 40, sleep: 35, cardiac: 15, vitality: 10 
 const REFERENCE_HRV_MS = 26;
 const REFERENCE_RESTING_HR = 70;
 
-/** Autonomic tone bands: HRV / rolling-baseline ratio thresholds (Plews & Buchheit, 2014). */
-const HRV_BANDS: { min: number; score: number; status: string; describe: (hrv: number, ratio: number) => string }[] = [
-  { min: 1.15, score: 40, status: "Peak Recovery", describe: (h, r) => `HRV is ${h} ms (+${pctDelta(r)}% above rolling baseline), signaling parasympathetic supercompensation.` },
-  { min: 1.05, score: 36, status: "Optimal", describe: (h, r) => `HRV is ${h} ms (+${pctDelta(r)}% above baseline), reflecting optimal vagal modulation.` },
-  { min: 0.95, score: 31, status: "Balanced", describe: (h) => `HRV of ${h} ms matches your personal physiological baseline.` },
-  { min: 0.85, score: 24, status: "Mild Suppression", describe: (h, r) => `HRV is ${h} ms (${pctDelta(r)}% below baseline), showing mild autonomic fatigue.` },
-  { min: 0.7, score: 18, status: "Suppressed", describe: (h, r) => `HRV is ${h} ms (${pctDelta(r)}% below baseline), reflecting delayed autonomic recovery.` },
+/** Autonomic tone bands: HRV / personal-baseline ratio thresholds (Plews & Buchheit, 2014). */
+const HRV_BANDS: { min: number; score: number; status: string; describe: (hrv: number, ratio: number, label: string) => string }[] = [
+  { min: 1.15, score: 40, status: "Peak Recovery", describe: (h, r, l) => `HRV is ${h} ms (+${pctDelta(r)}% above ${l} baseline), signaling parasympathetic supercompensation.` },
+  { min: 1.05, score: 36, status: "Optimal", describe: (h, r, l) => `HRV is ${h} ms (+${pctDelta(r)}% above ${l} baseline), reflecting optimal vagal modulation.` },
+  { min: 0.95, score: 31, status: "Balanced", describe: (h, _r, l) => `HRV of ${h} ms matches your ${l} physiological baseline.` },
+  { min: 0.85, score: 24, status: "Mild Suppression", describe: (h, r, l) => `HRV is ${h} ms (${pctDelta(r)}% below ${l} baseline), showing mild autonomic fatigue.` },
+  { min: 0.7, score: 18, status: "Suppressed", describe: (h, r, l) => `HRV is ${h} ms (${pctDelta(r)}% below ${l} baseline), reflecting delayed autonomic recovery.` },
   { min: 0, score: 10, status: "Elevated Strain", describe: (h) => `HRV is ${h} ms, indicating heavy sympathetic stress.` },
 ];
 
@@ -44,16 +47,17 @@ const pctDelta = (ratio: number) => Math.round(Math.abs(ratio - 1) * 100);
 
 /**
  * Four-pillar readiness score (0-100):
- *  1. Autonomic tone / HRV vs rolling 7-day baseline (40 pts)
+ *  1. Autonomic tone / HRV vs personal baseline (40 pts)
  *  2. Sleep restoration: sleep score and Deep + REM share (35 pts)
- *  3. Cardiac rest: resting HR vs 7-day baseline (15 pts)
+ *  3. Cardiac rest: resting HR vs personal baseline (15 pts)
  *  4. Vitality & acute strain from today's movement (10 pts)
  */
-export function calculateReadiness(today: DailyMetricSummary, history: DailyMetricSummary[] = []): ReadinessBreakdown {
+export function calculateReadiness(today: DailyMetricSummary, history: DailyMetricSummary[] = [], baseline?: PersonalBaseline): ReadinessBreakdown {
+  const label = baseline ? labelOf(baseline) : "7-day";
   const hrv = today.heartRateVariability;
   const rhr = today.restingHeartRate;
-  const baselineHrvMs = meanOf(history, (d) => d.heartRateVariability) ?? REFERENCE_HRV_MS;
-  const baselineRestingHr = meanOf(history, (d) => d.restingHeartRate) ?? rhr ?? REFERENCE_RESTING_HR;
+  const baselineHrvMs = baseline?.heartRateVariability ?? meanOf(history, (d) => d.heartRateVariability) ?? REFERENCE_HRV_MS;
+  const baselineRestingHr = baseline?.restingHeartRate ?? meanOf(history, (d) => d.restingHeartRate) ?? rhr ?? REFERENCE_RESTING_HR;
   const hrDiff = rhr ? baselineRestingHr - rhr : 0;
 
   // 1. Autonomic
@@ -61,7 +65,7 @@ export function calculateReadiness(today: DailyMetricSummary, history: DailyMetr
   if (hrv && baselineHrvMs > 0) {
     const ratio = Number((hrv / baselineHrvMs).toFixed(2));
     const band = HRV_BANDS.find((b) => ratio >= b.min)!;
-    autonomic = { score: band.score, status: band.status, description: band.describe(hrv, ratio), ratio, isPeak: band.score === 40 };
+    autonomic = { score: band.score, status: band.status, description: band.describe(hrv, ratio, label), ratio, isPeak: band.score === 40 };
   } else if (rhr) {
     autonomic = { ...autonomic, score: hrDiff >= 3 ? 38 : hrDiff >= 0 ? 35 : 28, description: "HRV not captured; autonomic tone estimated from resting cardiac recovery." };
   }
@@ -79,12 +83,12 @@ export function calculateReadiness(today: DailyMetricSummary, history: DailyMetr
   if (rhr) {
     cardiac =
       hrDiff >= 2
-        ? { score: 15, status: "Superior Rest", description: `Resting HR is ${rhr} bpm (${hrDiff} bpm lower than 7-day average), reflecting deep cardiovascular rest.` }
+        ? { score: 15, status: "Superior Rest", description: `Resting HR is ${rhr} bpm (${hrDiff} bpm lower than ${label} average), reflecting deep cardiovascular rest.` }
         : hrDiff >= -1
-          ? { score: 15, status: "Optimal Homeostasis", description: `Resting HR of ${rhr} bpm aligns comfortably with your baseline (${baselineRestingHr} bpm).` }
+          ? { score: 15, status: "Optimal Homeostasis", description: `Resting HR of ${rhr} bpm aligns comfortably with your ${label} baseline (${baselineRestingHr} bpm).` }
           : hrDiff >= -3
-            ? { score: 12, status: "Mild Strain", description: `Resting HR is ${rhr} bpm (+${Math.abs(hrDiff)} bpm vs baseline), indicating mild physiological workload.` }
-            : { score: 8, status: "Elevated", description: `Resting HR is elevated at ${rhr} bpm (+${Math.abs(hrDiff)} bpm vs baseline).` };
+            ? { score: 12, status: "Mild Strain", description: `Resting HR is ${rhr} bpm (+${Math.abs(hrDiff)} bpm vs ${label} baseline), indicating mild physiological workload.` }
+            : { score: 8, status: "Elevated", description: `Resting HR is elevated at ${rhr} bpm (+${Math.abs(hrDiff)} bpm vs ${label} baseline).` };
   }
 
   // 4. Vitality
@@ -125,6 +129,7 @@ export function calculateReadiness(today: DailyMetricSummary, history: DailyMetr
 
   return {
     score,
+    baselineLabel: label,
     tier,
     factors: {
       autonomic: { ...autonomic, max: FACTOR_MAX.autonomic, valueFormatted: hrv ? `${hrv} ms` : "Estimated", hrvMs: hrv, baselineHrvMs },
