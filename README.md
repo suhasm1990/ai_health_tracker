@@ -39,7 +39,7 @@ Custom OpenAI-compatible endpoints: set `LLM_PROVIDER`, `LLM_API_KEY`, `LLM_MODE
 
 ## Database (optional)
 
-Set `DATABASE_URL` (Neon, Supabase, or local Postgres), then run `npm run db:migrate`. Without it the app behaves as before.
+Set `DATABASE_URL` (Neon, Supabase, or local Postgres), and the build applies migrations automatically (or run `npm run db:migrate` by hand). Without it the app behaves as before.
 
 - **Stored:** daily summaries, workouts, and the refresh token (AES-256-GCM encrypted) used for nightly sync.
 - **Backfill:** the last 90 days are imported after you connect.
