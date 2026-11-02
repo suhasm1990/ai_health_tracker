@@ -33,14 +33,17 @@ export function openAiAdapter(messages: ChatMessage[], config: LlmConfig, system
   const conversation: OpenAiMessage[] = [{ role: "system", content: systemPrompt }, ...messages];
 
   return {
-    async complete() {
-      const data = await callProvider<OpenAiResponse>(`LLM provider (${config.provider})`, url, {
-        model: config.model,
+    async complete(stage) {
+      // Picking tools is a quick decision, so it may use the faster model; answers always use the main one.
+      const model = stage === "route" ? config.fastModel ?? config.model : config.model;
+      const data = await callProvider<OpenAiResponse>(`LLM provider (${config.provider}, ${model})`, url, {
+        model,
         messages: conversation,
         tools,
         tool_choice: "auto",
         temperature: 0.3,
         max_tokens: 1024,
+        ...config.requestOptions,
       }, { Authorization: `Bearer ${config.apiKey}` });
 
       const message = data.choices?.[0]?.message;

@@ -21,8 +21,11 @@ export interface ToolOutcome {
  * A provider owns its own conversation format; the loop only needs to know
  * how to ask for the next turn and how to hand tool results back.
  */
+/** "route" is the first turn, which only decides which tools to call; "answer" turns reason over the results. */
+export type TurnStage = "route" | "answer";
+
 export interface ProviderAdapter {
-  complete(): Promise<ModelTurn>;
+  complete(stage: TurnStage): Promise<ModelTurn>;
   addToolResults(results: ToolOutcome[]): void;
 }
 
@@ -39,7 +42,7 @@ const MAX_TURNS_TEXT = "I analyzed your health metrics, but reached the maximum 
 export async function runToolLoop(adapter: ProviderAdapter, ctx: ToolContext): Promise<AgentRun> {
   const toolsCalled: ToolExecutionSummary[] = [];
   for (let turn = 0; turn < MAX_TURNS; turn++) {
-    const { text, toolCalls } = await adapter.complete();
+    const { text, toolCalls } = await adapter.complete(turn === 0 ? "route" : "answer");
     if (!toolCalls.length) return { text: text || DEFAULT_TEXT, toolsCalled };
     const results = await Promise.all(
       toolCalls.map(async (call): Promise<ToolOutcome> => {

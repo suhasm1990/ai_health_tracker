@@ -1,9 +1,11 @@
 import type { AuthState } from "../auth";
 import { getAllHealthMetrics, getPairedDevices } from "../health";
-import { baselineLabel } from "../baseline";
+import { baselineLabel, hasData } from "../baseline";
+import { getDb } from "../db";
+import { loadTrendData, type TrendDay } from "../history";
 import { calculateReadiness } from "../readiness";
 import type { HealthMetricsPayload } from "../types";
-import { civilInZone, formatDuration, meanOf, withUnit } from "../utils";
+import { civilInZone, formatDuration, formatShortDate, meanOf, shiftIso, todayIso, withUnit } from "../utils";
 import type { ToolDefinition, ToolExecutionSummary } from "./types";
 
 export const HEALTH_TOOLS: ToolDefinition[] = [
@@ -50,6 +52,12 @@ export const HEALTH_TOOLS: ToolDefinition[] = [
     },
   },
   {
+    name: "get_long_term_trends",
+    description:
+      "Get the last 4 weeks, week by week: average steps, sleep, resting heart rate, HRV and readiness score, plus workout count and minutes, with the change from the first to the last week. Use for overall health, how someone has been doing lately, or monthly trends.",
+    parameters: { type: "object", properties: {}, required: [] },
+  },
+  {
     name: "get_connected_devices",
     description:
       "Get paired trackers and smartwatches (e.g. Fitbit Air, Pixel Watch) with battery percentage, battery status and last synchronisation time.",
@@ -88,6 +96,27 @@ function dataContext(payload: HealthMetricsPayload, ctx: ToolContext) {
     readingsFromEarlierDay: payload.freshness.fallbackDate
       ? `No sleep/heart/HRV reading for today yet; those values are from ${payload.freshness.fallbackDate}.`
       : null,
+  };
+}
+
+const TREND_WEEKS = 4;
+
+/** Averages for one week of stored days; changes are computed here so the model never does the arithmetic. */
+function weekSummary(days: TrendDay[], workouts: { date: string; minutes: number }[], startIso: string, endIso: string) {
+  const inWeek = days.filter(({ day }) => day.date >= startIso && day.date < endIso && hasData(day)).map(({ day, readinessScore }) => ({ ...day, readinessScore }));
+  const sessions = workouts.filter((w) => w.date >= startIso && w.date < endIso);
+  const sleep = meanOf(inWeek, (d) => d.sleepDurationMinutes);
+  return {
+    week: `${formatShortDate(startIso)} – ${formatShortDate(shiftIso(endIso, -1))}`,
+    daysWithData: inWeek.length,
+    avgDailySteps: meanOf(inWeek, (d) => d.steps),
+    avgSleepMinutes: sleep,
+    avgSleep: sleep === null ? null : formatDuration(sleep),
+    avgRestingHeartRateBpm: meanOf(inWeek, (d) => d.restingHeartRate),
+    avgHeartRateVariabilityMs: meanOf(inWeek, (d) => d.heartRateVariability),
+    avgReadinessScore: meanOf(inWeek, (d) => d.readinessScore),
+    workouts: sessions.length,
+    workoutMinutes: sessions.reduce((sum, w) => sum + w.minutes, 0),
   };
 }
 
@@ -272,6 +301,48 @@ const handlers: Record<string, ToolHandler> = {
         args,
         resultSummary: `7-day averages: ${avgSteps.toLocaleString()} steps/day, ${(avgSleep / 60).toFixed(1)}h sleep/day, ${withUnit(avgRestingHr, "bpm")} resting HR`,
       },
+    };
+  },
+
+  async get_long_term_trends(args, ctx) {
+    const db = getDb();
+    const userId = ctx.state.session?.user?.id;
+    const summary = (resultSummary: string) => ({ name: "get_long_term_trends", label: "Reviewed 4-Week Trends", args, resultSummary });
+    if (!db || !userId || ctx.state.isDemo) {
+      return {
+        data: { available: false, note: "Long-term history is only stored for connected accounts. Use get_weekly_trends for the last 7 days." },
+        summary: summary("Long-term history unavailable"),
+      };
+    }
+
+    // Completed days only: today is still in progress.
+    const today = ctx.clientDate ?? todayIso(ctx.clientTz);
+    const { days, workouts } = await loadTrendData(db, userId, shiftIso(today, -7 * TREND_WEEKS), today);
+    const weeks = Array.from({ length: TREND_WEEKS }, (_, i) => {
+      const weeksAgo = TREND_WEEKS - i;
+      return weekSummary(days, workouts, shiftIso(today, -7 * weeksAgo), shiftIso(today, -7 * (weeksAgo - 1)));
+    });
+    const [first, last] = [weeks[0], weeks[weeks.length - 1]];
+    const change = (pick: (w: (typeof weeks)[number]) => number | null) => {
+      const [a, b] = [pick(first), pick(last)];
+      return a === null || b === null ? null : b - a;
+    };
+    const covered = weeks.reduce((sum, w) => sum + w.daysWithData, 0);
+    return {
+      data: {
+        period: `${weeks[0].week.split(" – ")[0]} – ${last.week.split(" – ")[1]} (${TREND_WEEKS} completed weeks, oldest first)`,
+        daysWithData: `${covered} of ${7 * TREND_WEEKS}`,
+        weeks,
+        changeFirstToLastWeek: {
+          avgDailySteps: change((w) => w.avgDailySteps),
+          sleepMinutes: change((w) => w.avgSleepMinutes),
+          restingHeartRateBpm: change((w) => w.avgRestingHeartRateBpm),
+          heartRateVariabilityMs: change((w) => w.avgHeartRateVariabilityMs),
+          readinessScore: change((w) => w.avgReadinessScore),
+          workoutsPerWeek: last.workouts - first.workouts,
+        },
+      },
+      summary: summary(`${covered}/${7 * TREND_WEEKS} days; readiness ${first.avgReadinessScore ?? "n/a"} → ${last.avgReadinessScore ?? "n/a"}, resting HR ${withUnit(first.avgRestingHeartRateBpm, "bpm")} → ${withUnit(last.avgRestingHeartRateBpm, "bpm")}`),
     };
   },
 

@@ -31,6 +31,21 @@ export async function loadDays(db: Db, userId: string, fromIso: string, toIso: s
   return rows.map((r) => r.data);
 }
 
+export interface TrendDay {
+  day: DailyMetricSummary;
+  readinessScore: number | null;
+}
+
+/** Stored days with their readiness, and workout durations, in [fromIso, toIso). */
+export async function loadTrendData(db: Db, userId: string, fromIso: string, toIso: string) {
+  const inRange = <T extends typeof dailyMetrics | typeof workouts>(t: T) => and(eq(t.userId, userId), gte(t.date, fromIso), lt(t.date, toIso));
+  const [days, sessions] = await Promise.all([
+    db.select({ day: dailyMetrics.data, readinessScore: dailyMetrics.readinessScore }).from(dailyMetrics).where(inRange(dailyMetrics)).orderBy(dailyMetrics.date),
+    db.select({ date: workouts.date, minutes: workouts.durationMinutes }).from(workouts).where(inRange(workouts)),
+  ]);
+  return { days: days as TrendDay[], workouts: sessions };
+}
+
 /**
  * Upserts days and their workouts. Each day's readiness is scored against the
  * 30 days before it, drawn from `context` (already stored days) and the batch itself.
