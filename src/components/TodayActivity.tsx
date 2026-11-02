@@ -41,15 +41,27 @@ interface WorkoutMetricTile {
   sub: string;
 }
 
-function getActivityIcon(type: string, raw?: string) {
+/** Icons by activity kind; looked up by key so React's lint sees a static component, not one made during render. */
+const ACTIVITY_ICONS = {
+  cycling: Bike,
+  onFoot: Footprints,
+  strength: Dumbbell,
+  swim: Waves,
+  mobility: Sparkles,
+  intervals: Flame,
+  other: Activity,
+  none: Zap,
+} satisfies Record<string, LucideIcon>;
+
+function activityIconKey(type: string, raw?: string): keyof typeof ACTIVITY_ICONS {
   const t = `${raw || ""} ${type || ""}`.toLowerCase();
-  if (t.includes("bik") || t.includes("cycl")) return Bike;
-  if (t.includes("run") || t.includes("jog") || t.includes("walk") || t.includes("hike") || t.includes("treadmill")) return Footprints;
-  if (t.includes("strength") || t.includes("weight") || t.includes("lift") || t.includes("gym")) return Dumbbell;
-  if (t.includes("swim")) return Waves;
-  if (t.includes("yoga") || t.includes("pilates") || t.includes("stretch")) return Sparkles;
-  if (t.includes("hiit") || t.includes("interval") || t.includes("intensity")) return Flame;
-  return Activity;
+  if (t.includes("bik") || t.includes("cycl")) return "cycling";
+  if (t.includes("run") || t.includes("jog") || t.includes("walk") || t.includes("hike") || t.includes("treadmill")) return "onFoot";
+  if (t.includes("strength") || t.includes("weight") || t.includes("lift") || t.includes("gym")) return "strength";
+  if (t.includes("swim")) return "swim";
+  if (t.includes("yoga") || t.includes("pilates") || t.includes("stretch")) return "mobility";
+  if (t.includes("hiit") || t.includes("interval") || t.includes("intensity")) return "intervals";
+  return "other";
 }
 
 function getActivityTheme(type: string, raw?: string) {
@@ -237,7 +249,7 @@ export function TodayActivity({ workouts = [], today }: TodayActivityProps) {
   const hasWorkouts = workouts.length > 0;
   const currentWorkout = hasWorkouts ? workouts[Math.min(selectedIdx, workouts.length - 1)] : null;
 
-  const ActivityIcon = currentWorkout ? getActivityIcon(currentWorkout.activityType, currentWorkout.rawType) : Zap;
+  const ActivityIcon = ACTIVITY_ICONS[currentWorkout ? activityIconKey(currentWorkout.activityType, currentWorkout.rawType) : "none"];
   const theme = currentWorkout ? getActivityTheme(currentWorkout.activityType, currentWorkout.rawType) : getActivityTheme("general");
 
   const totalWorkoutMinutes = workouts.reduce((acc, w) => acc + w.durationMinutes, 0);
@@ -294,7 +306,7 @@ export function TodayActivity({ workouts = [], today }: TodayActivityProps) {
       {workouts.length > 1 && (
         <div className="flex items-center gap-2 mb-4 overflow-x-auto pb-1 scrollbar-none">
           {workouts.map((w, idx) => {
-            const Icon = getActivityIcon(w.activityType, w.rawType);
+            const Icon = ACTIVITY_ICONS[activityIconKey(w.activityType, w.rawType)];
             const isSelected = idx === selectedIdx;
             return (
               <button
