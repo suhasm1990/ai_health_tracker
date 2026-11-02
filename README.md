@@ -26,6 +26,7 @@ Other scripts: `npm run build`, `npm start`, `npm run lint`.
 | `GOOGLE_HEALTH_API_VERSION` | No | Defaults to `v4` |
 | `DATABASE_URL` | No | Postgres connection string. Enables history, baselines, and nightly sync. Without it only the live 7-day window is used |
 | `CRON_SECRET` | With `DATABASE_URL` on Vercel | Protects `/api/cron/sync`; Vercel Cron sends it as a Bearer token |
+| `ADMIN_EMAILS` | No | Comma-separated Google account emails allowed to open `/admin` |
 | `NVIDIA_API_KEY` **or** `GEMINI_API_KEY` **or** `OPENAI_API_KEY` | No | Enables the AI coach. Without a key an offline advisor answers from the same data |
 
 Custom OpenAI-compatible endpoints: set `LLM_PROVIDER`, `LLM_API_KEY`, `LLM_MODEL`, `LLM_BASE_URL`.
