@@ -108,10 +108,21 @@ function activeZones(pt?: api.RollupPoint) {
 function indexDailyHrv(points: api.DataPoint[]): Map<string, number> {
   const index = new Map<string, number>();
   for (const pt of points) {
-    const key = civilIso(pt.civilStartTime?.date ?? pt.civilEndTime?.date);
     const v = pt.dailyHeartRateVariability;
+    const key = civilIso(v?.date ?? pt.civilStartTime?.date ?? pt.civilEndTime?.date);
     const ms = v?.averageHeartRateVariabilityMilliseconds ?? v?.deepSleepRootMeanSquareOfSuccessiveDifferencesMilliseconds;
     if (key && isPositive(ms)) index.set(key, Math.round(ms));
+  }
+  return index;
+}
+
+/** Google's daily resting heart rate, which every source can supply; the day's minimum is only a fallback. */
+function indexRestingHeartRate(points: api.DataPoint[]): Map<string, number> {
+  const index = new Map<string, number>();
+  for (const pt of points) {
+    const key = civilIso(pt.dailyRestingHeartRate?.date ?? pt.civilStartTime?.date);
+    const bpm = Number(pt.dailyRestingHeartRate?.beatsPerMinute);
+    if (key && isPositive(bpm)) index.set(key, Math.round(bpm));
   }
   return index;
 }
@@ -154,6 +165,7 @@ interface DaySources {
   floors: DateIndex;
   sleepByDate: Map<string, SleepRecord>;
   hrvByDate: Map<string, number>;
+  restingByDate: Map<string, number>;
 }
 
 /** Looks up a day's value in an index; the live "today" row may substitute the most recent day. */
@@ -172,7 +184,8 @@ function buildDay(src: DaySources, iso: string, today: string, lookup: Lookup = 
     caloriesBurned: Math.round(Number(src.calories.get(iso)?.totalCalories?.kcalSum ?? 0)),
     distanceKm: mm > 0 ? round(mm / 1_000_000, 2) : round(daySteps * KM_PER_STEP, 1),
     floors: Number(src.floors.get(iso)?.floors?.countSum ?? 0),
-    restingHeartRate: numOrNull(hr?.beatsPerMinuteMin),
+    // The day's minimum is usually a sleeping reading, so it is used only when no resting value exists.
+    restingHeartRate: lookup(src.restingByDate, iso) ?? numOrNull(hr?.beatsPerMinuteMin),
     avgHeartRate: isPositive(hr?.beatsPerMinuteAvg) ? Math.round(hr.beatsPerMinuteAvg) : null,
     maxHeartRate: numOrNull(hr?.beatsPerMinuteMax),
     heartRateVariability: src.hrvByDate.get(iso) ?? null,
@@ -228,10 +241,11 @@ export async function fetchDailyRange(
   for (let iso = startIso; iso <= endIso; iso = shiftIso(iso, 1)) dates.push(iso);
 
   // Lists are newest first, so the item caps reach back roughly as far as the range does.
-  const [rollups, sleep, dailyHrv, exercise] = await Promise.all([
+  const [rollups, sleep, dailyHrv, resting, exercise] = await Promise.all([
     fetchRollups(token, shiftIso(startIso, -1), shiftIso(endIso, 1)),
     api.listDataPointsPaged(token, "sleep", 25, dates.length * 2 + 10),
     api.listDataPointsPaged(token, "daily-heart-rate-variability", 25, dates.length + 10),
+    api.listDataPointsPaged(token, "daily-resting-heart-rate", 25, dates.length + 10),
     api.listDataPointsPaged(token, "exercise", 25, dates.length * 2),
   ]);
   const [steps, calories, distance, azm, heartRate, floors] = rollups;
@@ -239,6 +253,7 @@ export async function fetchDailyRange(
     steps, calories, distance, azm, heartRate, floors,
     sleepByDate: parseSleepRecords(sleep, timeZone),
     hrvByDate: indexDailyHrv(dailyHrv),
+    restingByDate: indexRestingHeartRate(resting),
   };
   return {
     days: dates.map((iso) => buildDay(src, iso, shiftIso(endIso, 1))),
@@ -259,12 +274,13 @@ async function loadLiveMetrics(
 
   const intradayWindow = { start: new Date(`${shiftIso(today, -1)}T00:00:00Z`), end: new Date(`${shiftIso(today, 1)}T23:59:59Z`) };
 
-  const [rollups, sleep, dailyHrv, spo2, body, exercise, intradaySteps, intradayHeartRate] = await Promise.all([
+  const [rollups, sleep, dailyHrv, resting, spo2, body, exercise, intradaySteps, intradayHeartRate] = await Promise.all([
     // The full window (12 back, 2 ahead) covers the 7-day history plus UTC/civil skew at either end;
     // with settled days stored, a few days back still covers yesterday and today's fallback readings.
     fetchRollups(token, shiftIso(today, narrow ? -LIVE_LOOKBACK_DAYS : -12), shiftIso(today, 2)),
     api.listDataPoints(token, "sleep", narrow ? 6 : 20),
     api.listDataPoints(token, "daily-heart-rate-variability", narrow ? 4 : 10),
+    api.listDataPoints(token, "daily-resting-heart-rate", narrow ? 4 : 10),
     api.listDataPoints(token, "oxygen-saturation", 20),
     // Weight and height change rarely: keep them for an hour instead of refetching every load.
     cached(`${state.scope}:body`, BODY_TTL_MS, () => fetchBodyStats(token)),
@@ -277,6 +293,7 @@ async function loadLiveMetrics(
     steps, calories, distance, azm, heartRate, floors,
     sleepByDate: parseSleepRecords(sleep?.dataPoints ?? [], timeZone),
     hrvByDate: indexDailyHrv(dailyHrv?.dataPoints ?? []),
+    restingByDate: indexRestingHeartRate(resting?.dataPoints ?? []),
   };
   const todayWorkouts = parseWorkouts(exercise?.dataPoints ?? [], today, timeZone, intradayHeartRate);
 

@@ -1,6 +1,7 @@
 import type { IntradayHeartRatePoint, WorkoutSession } from "../types";
 import { civilInZone, civilToIso, round } from "../utils";
 import type { DataPoint } from "./client";
+import { sourceLabel } from "./sources";
 
 /** Map Google Health API / HealthKit exercise types to clean, user-friendly labels */
 const ACTIVITY_LABELS: Record<string, string> = {
@@ -154,15 +155,7 @@ export function parseWorkouts(
     const activeZoneMinutes = summary?.activeZoneMinutes ? Math.round(summary.activeZoneMinutes) : null;
     const elevationGainMeters = summary?.elevationGainMillimeters ? Math.round(summary.elevationGainMillimeters / 1000) : null;
 
-    // Device identification
-    const deviceName = pt.dataSource?.device?.displayName ?? pt.dataSource?.device?.model;
-    const sourceDevice = deviceName
-      ? deviceName.includes("Apple") || deviceName.includes("Watch")
-        ? "Apple Watch via HealthKit"
-        : deviceName
-      : pt.dataSource?.platform
-        ? `${pt.dataSource.platform} Health`
-        : null;
+    const sourceDevice = pt.dataSource ? sourceLabel(pt.dataSource) ?? null : null;
 
     // Heart rate zones
     const zoneDurations = summary?.heartRateZoneDurations;
@@ -200,5 +193,27 @@ export function parseWorkouts(
   }
 
   // Sort sessions: newest start time first
-  return sessions.sort((a, b) => (Date.parse(b.startIso ?? "") || 0) - (Date.parse(a.startIso ?? "") || 0));
+  return dedupeSessions(sessions).sort((a, b) => (Date.parse(b.startIso ?? "") || 0) - (Date.parse(a.startIso ?? "") || 0));
+}
+
+const DETAIL_FIELDS = ["caloriesBurned", "averageHeartRate", "peakHeartRate", "distanceKm", "steps", "elevationGainMeters"] as const;
+const detailCount = (s: WorkoutSession) => DETAIL_FIELDS.filter((f) => s[f] !== null && s[f] !== undefined).length + (s.heartRateZones ? 1 : 0);
+
+/**
+ * One workout can arrive from several apps (e.g. a watch app and Strava, both via Health Connect).
+ * Sessions overlapping by more than half of the shorter one are the same workout; the most detailed copy is kept.
+ */
+function dedupeSessions(sessions: WorkoutSession[]): WorkoutSession[] {
+  const span = (s: WorkoutSession) => [Date.parse(s.startIso ?? ""), Date.parse(s.endIso ?? "")] as const;
+  const kept: WorkoutSession[] = [];
+  for (const session of [...sessions].sort((a, b) => detailCount(b) - detailCount(a))) {
+    const [start, end] = span(session);
+    const duplicate = kept.some((other) => {
+      const [oStart, oEnd] = span(other);
+      const overlap = Math.min(end, oEnd) - Math.max(start, oStart);
+      return overlap > 0.5 * Math.min(end - start, oEnd - oStart);
+    });
+    if (!duplicate) kept.push(session);
+  }
+  return kept;
 }

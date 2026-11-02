@@ -15,6 +15,13 @@
       "when": 1791317320155,
       "tag": "0001_blue_miss_america",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1793642905919,
+      "tag": "0002_refetch_history_for_resting_hr",
+      "breakpoints": true
     }
   ]
 }

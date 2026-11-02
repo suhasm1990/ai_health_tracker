@@ -1,6 +1,6 @@
 import type { SleepStage, SleepStageSegment } from "../types";
 import { civilInZone, civilToIso } from "../utils";
-import type { DataPoint, SleepSummary } from "./client";
+import type { DataPoint, SleepStageSegmentRaw, SleepSummary } from "./client";
 
 export interface SleepQualityIndex {
   score: number;
@@ -37,8 +37,13 @@ export function calculateSleepQualityIndex(summary: SleepSummary | undefined, aw
   const efficiency = minutesAsleep / minutesInBed;
   const restorationScore = Math.max(5, efficiency * 25 - (minutesAwake * 0.5 + awakenings * 0.2));
 
+  // Devices that do not detect Deep/REM are scored on duration and restoration alone, scaled to 100,
+  // rather than losing the architecture points they cannot earn.
+  const hasArchitecture = stageMinutes(summary, "DEEP") + stageMinutes(summary, "REM") > 0;
+  const raw = hasArchitecture ? durationScore + qualityScore + restorationScore : ((durationScore + restorationScore) / 75) * 100;
+
   return {
-    score: Math.min(100, Math.max(20, Math.round(durationScore + qualityScore + restorationScore))),
+    score: Math.min(100, Math.max(20, Math.round(raw))),
     efficiencyPercent: Math.round(efficiency * 100),
     durationScore: Math.round(durationScore),
     qualityScore: Math.round(qualityScore),
@@ -55,7 +60,33 @@ export interface SleepRecord {
   endTime: string | null;
 }
 
-const STAGE_NAMES: Record<string, SleepStage> = { DEEP: "Deep", REM: "REM", AWAKE: "Awake" };
+/** ASLEEP is undifferentiated sleep from devices without staging, shown as Light; RESTLESS counts as awake. */
+const STAGE_NAMES: Record<string, SleepStage> = { DEEP: "Deep", REM: "REM", AWAKE: "Awake", RESTLESS: "Awake", LIGHT: "Light", ASLEEP: "Light" };
+const AWAKE_TYPES = new Set(["AWAKE", "RESTLESS"]);
+
+const minutesBetween = (startIso?: string, endIso?: string) => {
+  const ms = Date.parse(endIso ?? "") - Date.parse(startIso ?? "");
+  return Number.isFinite(ms) && ms > 0 ? Math.round(ms / 60_000) : 0;
+};
+
+/**
+ * Google fills `summary` for Fitbit sessions; other sources may send only stage segments or an interval.
+ * Rebuilds the summary from whatever is present so those nights are not recorded as zero sleep.
+ */
+function summaryOf(summary: SleepSummary | undefined, segments: SleepStageSegmentRaw[] | undefined, startIso?: string, endIso?: string): SleepSummary {
+  if (Number(summary?.minutesAsleep) > 0) return summary!;
+  const byType = new Map<string, number>();
+  for (const seg of segments ?? []) {
+    const type = seg.type ?? "ASLEEP";
+    byType.set(type, (byType.get(type) ?? 0) + minutesBetween(seg.startTime, seg.endTime));
+  }
+  const stagesSummary = summary?.stagesSummary?.length ? summary.stagesSummary : [...byType].map(([type, minutes]) => ({ type, minutes }));
+  const total = stagesSummary.reduce((sum, s) => sum + Number(s.minutes ?? 0), 0);
+  const awake = stagesSummary.filter((s) => AWAKE_TYPES.has(s.type ?? "")).reduce((sum, s) => sum + Number(s.minutes ?? 0), 0);
+  const inBed = Number(summary?.minutesInSleepPeriod) || total || minutesBetween(startIso, endIso);
+  const minutesAwake = Number(summary?.minutesAwake) || awake;
+  return { minutesAsleep: Math.max(0, (total || inBed) - minutesAwake), minutesInSleepPeriod: inBed, minutesAwake, stagesSummary };
+}
 
 function toStages(summary: SleepSummary | undefined): SleepStageSegment[] {
   const raw = summary?.stagesSummary ?? [];
@@ -92,8 +123,8 @@ export function parseSleepRecords(points: DataPoint[], timeZone?: string): Map<s
   for (const pt of points) {
     const interval = pt.sleep?.interval ?? pt.interval;
     if (!interval?.endTime) continue;
-    const summary = pt.sleep?.summary ?? pt.summary;
-    const minutesAsleep = Number(summary?.minutesAsleep ?? 0);
+    const summary = summaryOf(pt.sleep?.summary ?? pt.summary, pt.sleep?.stages, interval.startTime, interval.endTime);
+    const minutesAsleep = Number(summary.minutesAsleep ?? 0);
     const date = sessionDate(interval.endTime, interval.endUtcOffset, timeZone);
     if ((byDate.get(date)?.minutesAsleep ?? -1) >= minutesAsleep) continue;
     const sqi = calculateSleepQualityIndex(summary, (pt.sleep?.shortAwakenings ?? pt.shortAwakenings ?? []).length);

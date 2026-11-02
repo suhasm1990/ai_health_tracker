@@ -4,6 +4,7 @@ import { getMockDevices } from "../mockData";
 import type { BatteryStatus, PairedDevice } from "../types";
 import { isPositive } from "../utils";
 import * as api from "./client";
+import { appName, sourceLabel } from "./sources";
 
 const DEVICES_TTL_MS = 2 * 60 * 1000;
 /** Sources seen in earlier discoveries are remembered so a device that has not synced recently does not vanish. */
@@ -29,6 +30,8 @@ async function discoverDevices(state: AuthState): Promise<PairedDevice[]> {
     api.listDataPoints(token, "distance", 50),
     api.listDataPoints(token, "exercise", 20),
     api.listDataPoints(token, "heart-rate", 25),
+    // Rings and some bands mainly record sleep, so they would otherwise never be discovered.
+    api.listDataPoints(token, "sleep", 5),
   ]);
 
   paired?.pairedDevices?.forEach((raw, i) => {
@@ -91,14 +94,11 @@ function sourceName(ds: api.DataSource): string | undefined {
   if (dev?.displayName) return dev.displayName;
   const isApple = dev?.manufacturer === "Apple Inc." || ds.platform === "HEALTH_KIT" || ds.application?.packageName?.includes("apple.health");
   if (isApple) return dev?.formFactor === "WATCH" || has(dev?.model, "watch") ? "Apple Watch" : "Apple Health (iPhone)";
-  if (dev?.manufacturer && dev.formFactor) return `${dev.manufacturer} ${dev.formFactor === "PHONE" ? "Phone" : dev.formFactor}`;
-  if (ds.platform && ds.platform !== "FITBIT") return `${ds.platform} Sync`;
-  if (dev?.formFactor) return dev.formFactor === "PHONE" ? "Mobile Phone" : dev.formFactor;
-  return undefined;
+  return sourceLabel(ds);
 }
 
 const pointEndTime = (pt: api.DataPoint) =>
-  pt.steps?.interval?.endTime ?? pt.distance?.interval?.endTime ?? pt.exercise?.interval?.endTime ?? pt.heartRate?.sampleTime;
+  pt.steps?.interval?.endTime ?? pt.distance?.interval?.endTime ?? pt.exercise?.interval?.endTime ?? pt.sleep?.interval?.endTime ?? pt.heartRate?.sampleTime;
 
 function mergeSource(found: Map<string, PairedDevice>, pt: api.DataPoint): void {
   const ds = pt.dataSource;
@@ -117,7 +117,7 @@ function mergeSource(found: Map<string, PairedDevice>, pt: api.DataPoint): void 
     return;
   }
 
-  const isScale = has(name, "scale", "aria");
+  const isScale = has(name, "scale", "aria") || dev?.formFactor === "SCALE";
   const isPhone = dev?.formFactor === "PHONE" || (isApple && !isWatch) || has(name, "phone");
   const model = isApple
     ? isWatch
@@ -132,7 +132,7 @@ function mergeSource(found: Map<string, PairedDevice>, pt: api.DataPoint): void 
     displayName: name,
     model,
     deviceType: isWatch ? "SMARTWATCH" : isScale ? "SCALE" : "FITNESS_TRACKER",
-    manufacturer: dev?.manufacturer || (isApple ? "Apple Inc." : "Health Connect"),
+    manufacturer: dev?.manufacturer || (isApple ? "Apple Inc." : appName(ds.application?.packageName) ?? "Health Connect"),
     hardwareVersion: dev?.hardwareVersion || (isWatch ? "watchOS HealthKit" : isApple ? "iOS HealthKit" : "v1.0"),
     firmwareVersion: dev?.firmwareVersion || (isApple ? "Active Sync" : "Connected"),
     batteryStatus: "UNKNOWN",

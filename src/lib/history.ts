@@ -132,8 +132,12 @@ async function backfill(db: Db, userId: string, token: string, timeZone?: string
   backfilling.add(userId);
   try {
     const today = todayIso(timeZone);
-    const range = await fetchDailyRange(token, shiftIso(today, -days), shiftIso(today, -1), timeZone);
-    await saveDays(db, userId, range.days, range.workouts);
+    const start = shiftIso(today, -days);
+    const [range, stored] = await Promise.all([fetchDailyRange(token, start, shiftIso(today, -1), timeZone), loadDays(db, userId, start, today)]);
+    // A re-run backfill covers days already stored, so a failed fetch must not blank them; it is retried later.
+    const { days: usable, failed } = usableDays(range.days, stored);
+    if (failed) throw new Error(`Backfill for ${userId} returned no data for stored days`);
+    await saveDays(db, userId, usable, range.workouts, stored);
     await db.update(users).set({ backfilledAt: new Date(), lastSyncedAt: new Date() }).where(eq(users.id, userId));
   } finally {
     backfilling.delete(userId);

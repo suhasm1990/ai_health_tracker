@@ -49,6 +49,13 @@ export interface SleepSummary {
   stagesSummary?: SleepStageSummary[];
 }
 
+/** One contiguous segment of a sleep session; non-Fitbit sources may send these without a summary. */
+export interface SleepStageSegmentRaw {
+  type?: string;
+  startTime?: string;
+  endTime?: string;
+}
+
 export interface ExerciseMetricsSummary {
   activeDuration?: string | number;
   caloriesKcal?: number;
@@ -91,13 +98,15 @@ export interface DataPoint {
   heartRate?: { sampleTime?: string };
   heartRateVariability?: { rootMeanSquareOfSuccessiveDifferencesMilliseconds?: number };
   dailyHeartRateVariability?: {
+    date?: CivilDate;
     averageHeartRateVariabilityMilliseconds?: number;
     deepSleepRootMeanSquareOfSuccessiveDifferencesMilliseconds?: number;
   };
+  dailyRestingHeartRate?: { date?: CivilDate; beatsPerMinute?: string | number };
   oxygenSaturation?: { percentage?: number; sampleTime?: { civilTime?: CivilDateTime } };
   weight?: { weightGrams?: number };
   height?: { heightMillimeters?: number };
-  sleep?: { interval?: Interval; summary?: SleepSummary; shortAwakenings?: unknown[] };
+  sleep?: { interval?: Interval; summary?: SleepSummary; stages?: SleepStageSegmentRaw[]; shortAwakenings?: unknown[] };
   summary?: SleepSummary;
   shortAwakenings?: unknown[];
 }
