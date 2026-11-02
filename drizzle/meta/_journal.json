@@ -22,6 +22,13 @@
       "when": 1793642905919,
       "tag": "0002_refetch_history_for_resting_hr",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1793644233639,
+      "tag": "0003_remove_duplicate_workouts",
+      "breakpoints": true
     }
   ]
 }

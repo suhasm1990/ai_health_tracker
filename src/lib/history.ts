@@ -1,4 +1,4 @@
-import { and, eq, gte, isNotNull, lt, sql } from "drizzle-orm";
+import { and, eq, gte, inArray, isNotNull, lt, sql } from "drizzle-orm";
 import { after } from "next/server";
 import { getValidAccessToken, refreshAccessToken, type AuthState } from "./auth";
 import { BASELINE_WINDOW_DAYS, MIN_STORED_BASELINE_DAYS, baselineFromDays, hasData } from "./baseline";
@@ -83,29 +83,39 @@ export async function saveDays(db: Db, userId: string, days: DailyMetricSummary[
     });
 
   if (!dayWorkouts.length) return;
-  await db
-    .insert(workouts)
-    .values(
-      dayWorkouts.map(({ date, session }) => ({
-        userId,
-        id: session.id,
-        date,
-        activityType: session.activityType,
-        durationMinutes: session.durationMinutes,
-        data: session,
-        updatedAt: new Date(),
-      }))
-    )
-    .onConflictDoUpdate({
-      target: [workouts.userId, workouts.id],
-      set: {
-        date: excluded("date"),
-        activityType: excluded("activity_type"),
-        durationMinutes: excluded("duration_minutes"),
-        data: excluded("data"),
-        updatedAt: excluded("updated_at"),
-      },
-    });
+  // Each fetched day's workouts replace what is stored for it, so copies saved under older ids
+  // or from another source never pile up. Days with nothing fetched are left as they are,
+  // since a failed Google read also comes back empty.
+  const dates = [...new Set(dayWorkouts.map((w) => w.date))];
+  // A workout crossing midnight is listed on both days under one id; the later day's copy is kept.
+  const byId = new Map([...dayWorkouts].sort((a, b) => a.date.localeCompare(b.date)).map((w) => [w.session.id, w]));
+  await db.transaction(async (tx) => {
+    await tx.delete(workouts).where(and(eq(workouts.userId, userId), inArray(workouts.date, dates)));
+    await tx
+      .insert(workouts)
+      .values(
+        [...byId.values()].map(({ date, session }) => ({
+          userId,
+          id: session.id,
+          date,
+          activityType: session.activityType,
+          durationMinutes: session.durationMinutes,
+          data: session,
+          updatedAt: new Date(),
+        }))
+      )
+      // The same workout may still be stored under a date outside this batch.
+      .onConflictDoUpdate({
+        target: [workouts.userId, workouts.id],
+        set: {
+          date: excluded("date"),
+          activityType: excluded("activity_type"),
+          durationMinutes: excluded("duration_minutes"),
+          data: excluded("data"),
+          updatedAt: excluded("updated_at"),
+        },
+      });
+  });
 }
 
 /** Creates or refreshes the user row; stores the refresh token encrypted so the nightly sync can run without a session. */

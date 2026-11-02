@@ -168,7 +168,8 @@ export function parseWorkouts(
       : undefined;
 
     sessions.push({
-      id: `workout-${startIso}-${i}`,
+      // Start time alone, so the same workout keeps its id however the list is ordered.
+      id: `workout-${startIso}`,
       activityType,
       rawType,
       startTime: formatClock(startIso, timeZone),
