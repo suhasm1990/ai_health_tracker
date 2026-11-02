@@ -67,13 +67,13 @@ export function Header({ authStatus, devices, isRefreshing, onToggleDemo, onRefr
           </div>
           <div>
             <h1 className="font-bold text-base sm:text-lg tracking-tight text-slate-900 dark:text-white whitespace-nowrap leading-tight">AI Health Tracker</h1>
-            <p className="text-xs text-slate-500 dark:text-slate-400 hidden sm:block whitespace-nowrap">Powered by Google Health API</p>
+            <p className="text-[10px] text-slate-500 dark:text-slate-400 hidden sm:block whitespace-nowrap">Powered by Google Health API</p>
           </div>
         </div>
 
-        {/* Source badges (large screens) */}
+        {/* Source badges (extra-large screens only, so the controls never get squeezed) */}
         {devices.length > 0 && (
-          <div className="hidden lg:flex items-center space-x-2.5 bg-slate-100/90 dark:bg-slate-800/70 rounded-xl px-3 py-1.5 border border-slate-200 dark:border-slate-700/60 shadow-2xs">
+          <div className="hidden 2xl:flex items-center space-x-2.5 bg-slate-100/90 dark:bg-slate-800/70 rounded-xl px-3 py-1.5 border border-slate-200 dark:border-slate-700/60 shadow-2xs">
             <span className="flex h-2 w-2 relative">
               <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
               <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
@@ -99,7 +99,7 @@ export function Header({ authStatus, devices, isRefreshing, onToggleDemo, onRefr
         )}
 
         {/* Desktop controls */}
-        <div className="hidden md:flex items-center space-x-2.5">
+        <div className="hidden md:flex items-center space-x-2.5 shrink-0 whitespace-nowrap">
           <ThemeToggle />
           <button onClick={onRefresh} disabled={isRefreshing} title="Refresh Metrics" aria-label="Refresh metrics" className={`p-2 ${SECONDARY_BTN}`}>
             <RefreshCw className={`w-4 h-4 ${isRefreshing ? "animate-spin text-emerald-500 dark:text-emerald-400" : ""}`} />
@@ -115,7 +115,7 @@ export function Header({ authStatus, devices, isRefreshing, onToggleDemo, onRefr
           </button>
           <button onClick={onOpenApiTester} title="API Playground" className={`flex items-center space-x-1 p-2 text-xs font-medium ${SECONDARY_BTN}`}>
             <Code2 className="w-4 h-4 text-cyan-600 dark:text-cyan-400" />
-            <span className="hidden lg:inline">API Tester</span>
+            <span className="hidden xl:inline">API Tester</span>
           </button>
 
           {authStatus.isAuthenticated ? (

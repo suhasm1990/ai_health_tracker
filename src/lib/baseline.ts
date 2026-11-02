@@ -6,7 +6,7 @@ export const BASELINE_WINDOW_DAYS = 30;
 /** Fewer stored days than this and the baseline is too noisy to prefer over the 7-day window. */
 export const MIN_STORED_BASELINE_DAYS = 10;
 
-const hasData = (d: DailyMetricSummary) =>
+export const hasData = (d: DailyMetricSummary) =>
   d.steps > 0 || d.sleepDurationMinutes > 0 || d.restingHeartRate !== null || d.heartRateVariability !== null;
 
 /** Averages over `days`, excluding `today` so the reference never includes the day being judged. */

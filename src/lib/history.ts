@@ -1,7 +1,7 @@
 import { and, eq, gte, isNotNull, lt, sql } from "drizzle-orm";
 import { after } from "next/server";
 import { getValidAccessToken, refreshAccessToken, type AuthState } from "./auth";
-import { BASELINE_WINDOW_DAYS, MIN_STORED_BASELINE_DAYS, baselineFromDays } from "./baseline";
+import { BASELINE_WINDOW_DAYS, MIN_STORED_BASELINE_DAYS, baselineFromDays, hasData } from "./baseline";
 import { dailyMetrics, getDb, liveSnapshots, users, workouts, type Db } from "./db";
 import { fetchDailyRange, type StoredWorkout } from "./health/metrics";
 import { calculateReadiness } from "./readiness";
@@ -225,6 +225,17 @@ export function finishLiveLoad(
 
 type SyncOutcome = "synced" | "failed";
 
+/**
+ * Google read failures come back as empty results, so an empty day never replaces a stored one.
+ * `failed` means nothing came back for days that do have data, which is an outage rather than an idle device.
+ */
+export function usableDays(fetched: DailyMetricSummary[], stored: DailyMetricSummary[]) {
+  const storedWithData = new Set(stored.filter(hasData).map((d) => d.date));
+  const days = fetched.filter((d) => hasData(d) || !storedWithData.has(d.date));
+  const failed = !fetched.some(hasData) && fetched.some((d) => storedWithData.has(d.date));
+  return { days, failed };
+}
+
 async function syncUser(db: Db, user: typeof users.$inferSelect): Promise<SyncOutcome> {
   const refreshToken = decryptString(user.refreshTokenEnc ?? undefined);
   const token = refreshToken ? await refreshAccessToken(refreshToken) : null;
@@ -242,9 +253,11 @@ async function syncUser(db: Db, user: typeof users.$inferSelect): Promise<SyncOu
   const start = shiftIso(today, -lookback);
   const [range, context] = await Promise.all([
     fetchDailyRange(token, start, shiftIso(today, -1), timeZone),
-    loadDays(db, user.id, shiftIso(start, -BASELINE_WINDOW_DAYS), start),
+    loadDays(db, user.id, shiftIso(start, -BASELINE_WINDOW_DAYS), today),
   ]);
-  await saveDays(db, user.id, range.days, range.workouts, context);
+  const { days, failed } = usableDays(range.days, context);
+  if (failed) return "failed";
+  await saveDays(db, user.id, days, range.workouts, context);
   await Promise.all([
     db.update(users).set({ lastSyncedAt: new Date() }).where(eq(users.id, user.id)),
     // Snapshots only matter for the current day.
