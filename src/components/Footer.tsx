@@ -1,3 +1,5 @@
+import Link from "next/link";
+
 export function Footer({ apiVersion, onOpenApiTester }: { apiVersion: string; onOpenApiTester: () => void }) {
   return (
     <footer className="border-t border-slate-200 dark:border-slate-800 bg-white/50 dark:bg-slate-900/50 mt-8 py-6 sm:mt-12 sm:py-8 transition-colors duration-200">
@@ -10,9 +12,14 @@ export function Footer({ apiVersion, onOpenApiTester }: { apiVersion: string; on
             <span className="hidden sm:inline">•</span>
             <span>Fitbit & Apple Health Compatible</span>
           </div>
-          <button onClick={onOpenApiTester} className="hover:text-slate-900 dark:hover:text-slate-300 transition-colors">
-            API Explorer
-          </button>
+          <div className="flex items-center gap-4">
+            <Link href="/privacy" className="hover:text-slate-900 dark:hover:text-slate-300 transition-colors">
+              Privacy Policy
+            </Link>
+            <button onClick={onOpenApiTester} className="hover:text-slate-900 dark:hover:text-slate-300 transition-colors">
+              API Explorer
+            </button>
+          </div>
         </div>
 
         <details className="pt-3 border-t border-slate-200/60 dark:border-slate-800/60 text-[11px] leading-relaxed text-slate-400 dark:text-slate-500">
