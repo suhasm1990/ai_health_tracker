@@ -100,9 +100,10 @@ const numOrNull = (v: unknown): number | null => (isPositive(v) ? v : null);
 function activeZones(pt?: api.RollupPoint) {
   const z = pt?.activeZoneMinutes;
   const fatBurn = Number(z?.sumInFatBurnHeartZone ?? 0);
-  const cardioPeak = Number(z?.sumInCardioHeartZone ?? 0) + Number(z?.sumInPeakHeartZone ?? 0);
-  // Fitbit credits cardio/peak minutes double toward the Active Zone Minutes goal.
-  return { fatBurn, cardioPeak, total: fatBurn + cardioPeak * 2 };
+  // Google reports cardio/peak as credited Active Zone Minutes, already counted double
+  // (stored values are always even), so the total is a plain sum and real minutes are half.
+  const cardioPeakCredited = Number(z?.sumInCardioHeartZone ?? 0) + Number(z?.sumInPeakHeartZone ?? 0);
+  return { fatBurn, cardioPeak: Math.round(cardioPeakCredited / 2), total: fatBurn + cardioPeakCredited };
 }
 
 function indexDailyHrv(points: api.DataPoint[]): Map<string, number> {

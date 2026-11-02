@@ -2,7 +2,8 @@ import type { AuthState } from "../auth";
 import { getAllHealthMetrics, getPairedDevices } from "../health";
 import { baselineLabel } from "../baseline";
 import { calculateReadiness } from "../readiness";
-import { formatDuration, meanOf, withUnit } from "../utils";
+import type { HealthMetricsPayload } from "../types";
+import { civilInZone, formatDuration, meanOf, withUnit } from "../utils";
 import type { ToolDefinition, ToolExecutionSummary } from "./types";
 
 export const HEALTH_TOOLS: ToolDefinition[] = [
@@ -74,17 +75,35 @@ type ToolHandler = (args: ToolArgs, ctx: ToolContext) => Promise<ToolResult>;
 
 const metricsFor = (ctx: ToolContext) => getAllHealthMetrics({ clientDate: ctx.clientDate, clientTz: ctx.clientTz }, ctx.state);
 
+/**
+ * When the data is from and how complete it is, so the model never treats an unsynced or
+ * half-finished day as a full one, or an earlier night's reading as today's.
+ */
+function dataContext(payload: HealthMetricsPayload, ctx: ToolContext) {
+  const { hour } = civilInZone(new Date(), ctx.clientTz);
+  return {
+    localHour: hour,
+    dayInProgress: "Steps, calories, distance and active minutes are running totals for today so far, not a full day.",
+    syncedToday: payload.freshness.syncedToday,
+    readingsFromEarlierDay: payload.freshness.fallbackDate
+      ? `No sleep/heart/HRV reading for today yet; those values are from ${payload.freshness.fallbackDate}.`
+      : null,
+  };
+}
+
 const sleepRating = (score: number) => (score >= 85 ? "Excellent" : score >= 75 ? "Good" : score >= 60 ? "Fair" : "Poor");
 
 const handlers: Record<string, ToolHandler> = {
   async get_today_health_summary(args, ctx) {
-    const { today: t, history7Days, baseline, todayWorkouts = [] } = await metricsFor(ctx);
+    const payload = await metricsFor(ctx);
+    const { today: t, history7Days, baseline, todayWorkouts = [] } = payload;
     const readiness = calculateReadiness(t, history7Days, baseline);
     const factor = (f: { score: number; max: number; valueFormatted: string; status: string }) =>
       `${f.score}/${f.max} (${f.valueFormatted} - ${f.status})`;
     return {
       data: {
         date: t.date,
+        dataContext: dataContext(payload, ctx),
         steps: t.steps,
         stepsGoal: t.stepsGoal,
         stepsGoalAchievedPercent: Math.round((t.steps / t.stepsGoal) * 100),
@@ -146,7 +165,8 @@ const handlers: Record<string, ToolHandler> = {
   },
 
   async get_sleep_analysis(args, ctx) {
-    const { today: t } = await metricsFor(ctx);
+    const payload = await metricsFor(ctx);
+    const { today: t } = payload;
     const highlight = (stage: string) => {
       const s = t.sleepStages.find((x) => x.stage === stage);
       return s ? `${s.percentage}% (${s.durationMinutes}m)` : "N/A";
@@ -156,9 +176,13 @@ const handlers: Record<string, ToolHandler> = {
     return {
       data: {
         date: t.date,
+        nightFrom: payload.freshness.fallbackDate ?? t.date,
+        bedtime: t.sleepStartTime,
+        wakeTime: t.sleepEndTime,
         durationFormatted: formatDuration(t.sleepDurationMinutes),
         totalDurationMinutes: t.sleepDurationMinutes,
         sleepScore: t.sleepScore,
+        sleepScoreNote: "Computed by this app from duration, Deep/REM share and efficiency; not the device's own sleep score.",
         sleepEfficiency: t.sleepEfficiency ? `${t.sleepEfficiency}%` : undefined,
         rating,
         stages: t.sleepStages.map((s) => ({ ...s, durationFormatted: formatDuration(s.durationMinutes) })),
@@ -179,14 +203,20 @@ const handlers: Record<string, ToolHandler> = {
   },
 
   async get_heart_rate_insights(args, ctx) {
-    const { today: t, intradayHeartRate } = await metricsFor(ctx);
+    const payload = await metricsFor(ctx);
+    const { today: t, intradayHeartRate, baseline } = payload;
     return {
       data: {
+        dataContext: dataContext(payload, ctx),
         restingHeartRateBpm: t.restingHeartRate,
+        baselineRestingHeartRateBpm: baseline.restingHeartRate,
+        baselineHeartRateVariabilityMs: baseline.heartRateVariability,
+        baselineWindow: baselineLabel(baseline),
         averageHeartRateBpm: t.avgHeartRate,
         maxHeartRateBpm: t.maxHeartRate,
         heartRateVariabilityMs: t.heartRateVariability,
-        zones: { fatBurnMinutes: t.fatBurnMinutes, cardioPeakMinutes: t.cardioPeakMinutes, activeZoneMinutes: t.activeZoneMinutes },
+        // Active Zone Minutes count cardio/peak minutes double, so they exceed the zone minutes' sum.
+        zones: { fatBurnMinutes: t.fatBurnMinutes, cardioPeakMinutes: t.cardioPeakMinutes, activeZoneMinutesCredited: t.activeZoneMinutes },
         // Every other hour keeps the context compact for the model.
         recentReadings: intradayHeartRate.filter((_, i) => i % 2 === 0).slice(-10),
       },
@@ -200,10 +230,13 @@ const handlers: Record<string, ToolHandler> = {
   },
 
   async get_weekly_trends(args, ctx) {
-    const { history7Days: history } = await metricsFor(ctx);
-    const avgSteps = meanOf(history, (d) => d.steps) ?? 0;
-    const avgSleep = meanOf(history, (d) => d.sleepDurationMinutes) ?? 0;
-    const avgRestingHr = meanOf(history, (d) => d.restingHeartRate);
+    const { history7Days: history, today, baseline } = await metricsFor(ctx);
+    // Today is still in progress, so averages cover completed days only.
+    const completed = history.filter((d) => d.date < today.date);
+    const avgSteps = meanOf(completed, (d) => d.steps) ?? 0;
+    const avgSleep = meanOf(completed, (d) => d.sleepDurationMinutes) ?? 0;
+    const avgRestingHr = meanOf(completed, (d) => d.restingHeartRate);
+    const avgHrv = meanOf(completed, (d) => d.heartRateVariability);
     return {
       data: {
         days: history.map((d) => ({
@@ -213,10 +246,25 @@ const handlers: Record<string, ToolHandler> = {
           sleepHours: (d.sleepDurationMinutes / 60).toFixed(1),
           sleepScore: d.sleepScore,
           restingHeartRate: d.restingHeartRate,
+          heartRateVariabilityMs: d.heartRateVariability,
+          inProgress: d.date === today.date,
           calories: d.caloriesBurned,
           activeZoneMinutes: d.activeZoneMinutes,
         })),
-        weeklyAverages: { averageDailySteps: avgSteps, averageDailySleep: formatDuration(avgSleep), averageRestingHeartRate: avgRestingHr },
+        weeklyAverages: {
+          completedDays: completed.length,
+          averageDailySteps: avgSteps,
+          averageDailySleep: formatDuration(avgSleep),
+          averageRestingHeartRate: avgRestingHr,
+          averageHeartRateVariabilityMs: avgHrv,
+        },
+        personalBaseline: {
+          window: baselineLabel(baseline),
+          restingHeartRateBpm: baseline.restingHeartRate,
+          heartRateVariabilityMs: baseline.heartRateVariability,
+          sleepMinutes: baseline.sleepMinutes,
+          steps: baseline.steps,
+        },
       },
       summary: {
         name: "get_weekly_trends",

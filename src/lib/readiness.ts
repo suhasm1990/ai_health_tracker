@@ -45,6 +45,9 @@ const HRV_BANDS: { min: number; score: number; status: string; describe: (hrv: n
 
 const pctDelta = (ratio: number) => Math.round(Math.abs(ratio - 1) * 100);
 
+/** Below this much sleep, a high Deep + REM share cannot stand in for duration. */
+const MIN_RESTORATIVE_NIGHT_MINUTES = 420;
+
 /**
  * Four-pillar readiness score (0-100):
  *  1. Autonomic tone / HRV vs personal baseline (40 pts)
@@ -61,13 +64,14 @@ export function calculateReadiness(today: DailyMetricSummary, history: DailyMetr
   const hrDiff = rhr ? baselineRestingHr - rhr : 0;
 
   // 1. Autonomic
-  let autonomic = { score: 32, status: "Balanced", description: "Autonomic tone is aligned with physiological baseline.", ratio: 1, isPeak: false };
+  // Without HRV the pillar is estimated, so it never scores above a measured "Optimal" reading.
+  let autonomic = { score: 31, status: "Balanced", description: "Autonomic tone is aligned with physiological baseline.", ratio: 1, isPeak: false };
   if (hrv && baselineHrvMs > 0) {
     const ratio = Number((hrv / baselineHrvMs).toFixed(2));
     const band = HRV_BANDS.find((b) => ratio >= b.min)!;
     autonomic = { score: band.score, status: band.status, description: band.describe(hrv, ratio, label), ratio, isPeak: band.score === 40 };
   } else if (rhr) {
-    autonomic = { ...autonomic, score: hrDiff >= 3 ? 38 : hrDiff >= 0 ? 35 : 28, description: "HRV not captured; autonomic tone estimated from resting cardiac recovery." };
+    autonomic = { ...autonomic, score: hrDiff >= 3 ? 34 : hrDiff >= 0 ? 31 : 24, description: "HRV not captured; autonomic tone estimated from resting cardiac recovery." };
   }
 
   // 2. Sleep
@@ -75,7 +79,8 @@ export function calculateReadiness(today: DailyMetricSummary, history: DailyMetr
   const sleepScore = today.sleepScore || (sleepMins ? Math.min(100, Math.round((sleepMins / GOALS.sleepMinutes) * 85)) : 75);
   const restorativeShare = sleepMins > 0 ? restorativeMinutes(today.sleepStages) / sleepMins : 0;
   const basePts = Math.round((sleepScore / 100) * FACTOR_MAX.sleep);
-  const sleepPts = sleepScore >= 90 ? 35 : sleepScore >= 85 || restorativeShare >= 0.35 ? Math.max(34, basePts) : basePts;
+  const restorativeNight = restorativeShare >= 0.35 && sleepMins >= MIN_RESTORATIVE_NIGHT_MINUTES;
+  const sleepPts = sleepScore >= 90 ? 35 : sleepScore >= 85 || restorativeNight ? Math.max(34, basePts) : basePts;
   const sleepStatus = sleepScore >= 85 ? "Optimal" : sleepScore >= 75 ? "Good" : sleepScore >= 60 ? "Moderate" : "Insufficient";
 
   // 3. Cardiac

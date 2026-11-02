@@ -29,6 +29,13 @@
       "when": 1793644233639,
       "tag": "0003_remove_duplicate_workouts",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1793644642128,
+      "tag": "0004_refetch_history_for_azm_and_readiness",
+      "breakpoints": true
     }
   ]
 }
