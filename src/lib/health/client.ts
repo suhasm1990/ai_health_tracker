@@ -103,6 +103,8 @@ export interface DataPoint {
     deepSleepRootMeanSquareOfSuccessiveDifferencesMilliseconds?: number;
   };
   dailyRestingHeartRate?: { date?: CivilDate; beatsPerMinute?: string | number };
+  dailyRespiratoryRate?: { date?: CivilDate; breathsPerMinute?: number };
+  dailySleepTemperatureDerivations?: { date?: CivilDate; nightlyTemperatureCelsius?: number; baselineTemperatureCelsius?: number };
   oxygenSaturation?: { percentage?: number; sampleTime?: { civilTime?: CivilDateTime } };
   weight?: { weightGrams?: number };
   height?: { heightMillimeters?: number };

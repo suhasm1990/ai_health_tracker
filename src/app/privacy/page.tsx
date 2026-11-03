@@ -45,7 +45,7 @@ export default function PrivacyPage() {
           <li><strong>Your Google profile:</strong> name, email address and profile photo.</li>
           <li>
             <strong>Your Google Health data, read-only:</strong> activity and fitness (such as steps, distance, calories and workouts),
-            health metrics (such as heart rate, heart rate variability, blood oxygen, weight and height), sleep, nutrition, and
+            health metrics (such as heart rate, heart rate variability, breathing rate, skin temperature, blood oxygen, weight and height), sleep, nutrition, and
             settings including your connected devices. This can include data synced into Google Health from other apps, such as Apple Health.
           </li>
         </ul>
@@ -65,7 +65,8 @@ export default function PrivacyPage() {
           <li>
             To let the app owner check that everyone&apos;s sync is working and spot possible concerns. The owner can see your name,
             email, when you joined, when your data last synced, and automated flags such as &ldquo;resting heart rate above your
-            usual&rdquo; or &ldquo;short sleep on recent nights&rdquo;.
+            usual&rdquo;, &ldquo;short sleep on recent nights&rdquo;, &ldquo;possible illness pattern&rdquo; or a change over the
+            last 3 months, and which kinds of readings your device sends (for example, whether HRV arrives).
           </li>
         </ul>
         <p>Your data is not used for advertising, is not sold, and is not used to train AI models.</p>

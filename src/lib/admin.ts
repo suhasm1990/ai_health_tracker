@@ -2,6 +2,7 @@ import { gte, sql } from "drizzle-orm";
 import { BASELINE_WINDOW_DAYS, MIN_STORED_BASELINE_DAYS } from "./baseline";
 import { dailyMetrics, users, type Db } from "./db";
 import type { UserSession } from "./session";
+import { DRIFT_WINDOW_DAYS, wellnessSignals } from "./signals";
 import { isPositive, meanOf, shiftIso, todayIso } from "./utils";
 
 export type HealthStatus = "attention" | "watch" | "ok" | "limited" | "unknown";
@@ -23,6 +24,8 @@ const SLEEP_MINUTES = { watch: 360, attention: 300 };
 const LOW_READINESS = 50;
 /** Share of a usual day's steps below which movement counts as a marked drop. */
 const STEPS_RATIO = 0.5;
+/** Days looked at to tell which readings a user's device actually sends. */
+const COVERAGE_DAYS = 14;
 
 export interface AdminDay {
   date: string;
@@ -31,6 +34,11 @@ export interface AdminDay {
   heartRateVariability: number | null;
   sleepMinutes: number;
   readinessScore: number | null;
+  respiratoryRate: number | null;
+  skinTemperatureCelsius: number | null;
+  skinTemperatureDeviationCelsius: number | null;
+  /** The night had Deep or REM stages, not just "asleep". */
+  sleepStaged: boolean;
 }
 
 export interface AdminUserInput {
@@ -46,6 +54,8 @@ export interface AdminUserInput {
 export interface AdminFlag {
   severity: "attention" | "watch";
   message: string;
+  /** A 3-month change: worth a checkup, but never urgent on its own. */
+  longTerm?: boolean;
 }
 
 export interface AdminUserRow extends AdminUserInput {
@@ -59,6 +69,9 @@ export interface AdminUserRow extends AdminUserInput {
   dataStopped: boolean;
   /** Why there is no assessment, or why it is partial. */
   note: string | null;
+  /** Readings that arrived in the last two weeks, and the ones that never did. */
+  receives: string[];
+  notReceived: string[];
 }
 
 export interface AdminOverview {
@@ -111,6 +124,44 @@ interface Assessment {
   checked: string[];
   /** Metrics with recent readings but no usable baseline yet. */
   building: string[];
+}
+
+const COVERAGE: [label: string, has: (d: AdminDay) => boolean][] = [
+  ["steps", (d) => d.steps > 0],
+  ["sleep", (d) => d.sleepMinutes > 0],
+  ["sleep stages", (d) => d.sleepStaged],
+  ["resting heart rate", (d) => d.restingHeartRate !== null],
+  ["HRV", (d) => d.heartRateVariability !== null],
+  ["breathing rate", (d) => isPositive(d.respiratoryRate)],
+  ["skin temperature", (d) => isPositive(d.skinTemperatureCelsius)],
+];
+
+/** Which kinds of reading the device sent recently, so "limited data" says what is missing. */
+function coverageOf(days: AdminDay[], today: string) {
+  const recent = days.filter((d) => d.date >= shiftIso(today, -COVERAGE_DAYS));
+  if (!recent.length) return { receives: [], notReceived: [] };
+  const receives = COVERAGE.filter(([, has]) => recent.some(has)).map(([label]) => label);
+  return { receives, notReceived: COVERAGE.map(([label]) => label).filter((label) => !receives.includes(label)) };
+}
+
+/** Checks that say nothing about heart or sleep, so they cannot make a status clear. */
+const ACTIVITY_ONLY = new Set(["activity", "3-month trend"]);
+
+/** Illness pattern and 3-month changes from the shared signal rules. */
+function signalFlags(days: AdminDay[], today: string): { flags: AdminFlag[]; checked: string[] } {
+  const signals = wellnessSignals(days, today);
+  const flags: AdminFlag[] = [];
+  const checked: string[] = [];
+  if (signals.illnessChecked.length >= 2) checked.push("illness pattern");
+  if (signals.driftReady) checked.push("3-month trend");
+  if (signals.illness) {
+    flags.push({
+      severity: signals.illness.level,
+      message: `Possible illness pattern: ${signals.illness.markers.map((m) => `${m.metric} ${m.detail}`).join("; ")}`,
+    });
+  }
+  for (const m of signals.drift) flags.push({ severity: "watch", longTerm: true, message: `3-month change: ${m.metric} ${m.detail}` });
+  return { flags, checked };
 }
 
 /** Compares a user's last few days with their own earlier baseline. */
@@ -180,7 +231,7 @@ export function assessUser(user: AdminUserInput, days: AdminDay[], now = Date.no
   const today = todayIso(user.timeZone ?? undefined);
   const withData = days.filter(hasData);
   const lastDataDate = withData.at(-1)?.date ?? null;
-  const base = { ...user, syncStatus: syncStatusOf(user, now), lastDataDate, flags: [], checked: [], dataStopped: false };
+  const base = { ...user, syncStatus: syncStatusOf(user, now), lastDataDate, flags: [], checked: [], dataStopped: false, ...coverageOf(withData, today) };
 
   if (!lastDataDate) return { ...base, healthStatus: "unknown", note: "No device data yet" };
 
@@ -193,17 +244,23 @@ export function assessUser(user: AdminUserInput, days: AdminDay[], now = Date.no
   const recentFrom = shiftIso(lastDataDate, -(RECENT_DAYS - 1));
   const recent = withData.filter((d) => d.date >= recentFrom);
   const baseline = withData.filter((d) => d.date < recentFrom && d.date >= shiftIso(today, -BASELINE_WINDOW_DAYS));
-  const { flags, checked, building } = assessHealth(recent, baseline);
+  const health = assessHealth(recent, baseline);
+  const signals = signalFlags(withData, today);
+  const { building } = health;
+  const flags = [...health.flags, ...signals.flags];
+  const checked = [...health.checked, ...signals.checked];
   const row = { ...base, dataStopped, flags, checked };
   const buildingNote = building.length ? `Baseline still building: ${building.join(", ")}` : null;
 
   if (flags.length) {
-    const healthStatus = flags.some((f) => f.severity === "attention") || flags.length >= 2 ? "attention" : "watch";
+    // Several short-term flags together are urgent; slow 3-month changes never escalate on their own.
+    const shortTerm = flags.filter((f) => !f.longTerm);
+    const healthStatus = flags.some((f) => f.severity === "attention") || shortTerm.length >= 2 ? "attention" : "watch";
     return { ...row, healthStatus, note: noDataNote ?? buildingNote };
   }
   // Clear only counts when current heart or sleep data was actually compared.
   if (dataStopped) return { ...row, healthStatus: "unknown", note: noDataNote };
-  if (!checked.some((metric) => metric !== "activity")) {
+  if (!checked.some((metric) => !ACTIVITY_ONLY.has(metric))) {
     return { ...row, healthStatus: "limited", note: buildingNote ?? "No recent heart rate or sleep readings" };
   }
   return { ...row, healthStatus: "ok", note: buildingNote };
@@ -214,7 +271,7 @@ const STATUS_ORDER: Record<HealthStatus, number> = { attention: 0, watch: 1, unk
 /** Every registered user with sync state and a status, most concerning first. */
 export async function loadAdminOverview(db: Db): Promise<AdminOverview> {
   // One spare day so every time zone's window is fully covered.
-  const from = shiftIso(todayIso(), -(BASELINE_WINDOW_DAYS + 1));
+  const from = shiftIso(todayIso(), -(DRIFT_WINDOW_DAYS + 1));
   const [userRows, dayRows] = await Promise.all([
     db
       .select({
@@ -236,6 +293,11 @@ export async function loadAdminOverview(db: Db): Promise<AdminOverview> {
         heartRateVariability: dailyMetrics.heartRateVariability,
         sleepMinutes: dailyMetrics.sleepMinutes,
         readinessScore: dailyMetrics.readinessScore,
+        // Stored inside the day's JSON only, so older rows simply read as null.
+        respiratoryRate: sql<number | null>`(${dailyMetrics.data}->>'respiratoryRate')::real`,
+        skinTemperatureCelsius: sql<number | null>`(${dailyMetrics.data}->>'skinTemperatureCelsius')::real`,
+        skinTemperatureDeviationCelsius: sql<number | null>`(${dailyMetrics.data}->>'skinTemperatureDeviationCelsius')::real`,
+        sleepStaged: sql<boolean>`coalesce(${dailyMetrics.data}->'sleepStages' @> '[{"stage":"Deep"}]' or ${dailyMetrics.data}->'sleepStages' @> '[{"stage":"REM"}]', false)`,
       })
       .from(dailyMetrics)
       .where(gte(dailyMetrics.date, from))

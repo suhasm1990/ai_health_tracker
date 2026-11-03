@@ -64,7 +64,12 @@ export interface DailyMetricSummary {
   minOxygenSaturation?: number | null;
   maxOxygenSaturation?: number | null;
   oxygenSaturationSamples?: number;
+  /** Average breaths per minute during sleep */
   respiratoryRate: number | null;
+  /** Nightly skin temperature, °C; absent on days stored before it was fetched */
+  skinTemperatureCelsius?: number | null;
+  /** Nightly skin temperature minus the device's own baseline, °C */
+  skinTemperatureDeviationCelsius?: number | null;
   sleepDurationMinutes: number;
   sleepScore: number;
   /** Time asleep / time in bed, % */
@@ -138,6 +143,23 @@ export interface HealthMetricsPayload {
   freshness: DataFreshness;
   todayWorkouts: WorkoutSession[];
   baseline: PersonalBaseline;
+  /** Multi-day wellness patterns from stored history; absent without a database. */
+  signals?: WellnessSignals;
+}
+
+export interface WellnessMarker {
+  metric: "resting heart rate" | "HRV" | "breathing rate" | "skin temperature" | "steps";
+  /** Plain description, e.g. "+6 bpm vs your usual 58 bpm" */
+  detail: string;
+}
+
+export interface WellnessSignals {
+  illness: { level: "watch" | "attention"; markers: WellnessMarker[] } | null;
+  /** Metrics compared for the illness pattern (with enough baseline). */
+  illnessChecked: string[];
+  drift: WellnessMarker[];
+  /** False until about 3 months of history are stored. */
+  driftReady: boolean;
 }
 
 export interface UserProfile {

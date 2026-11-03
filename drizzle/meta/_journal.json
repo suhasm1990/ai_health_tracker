@@ -36,6 +36,13 @@
       "when": 1793644642128,
       "tag": "0004_refetch_history_for_azm_and_readiness",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1793734190053,
+      "tag": "0005_refetch_history_for_breathing_and_temperature",
+      "breakpoints": true
     }
   ]
 }

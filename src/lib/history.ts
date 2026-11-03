@@ -5,12 +5,13 @@ import { BASELINE_WINDOW_DAYS, MIN_STORED_BASELINE_DAYS, baselineFromDays, hasDa
 import { dailyMetrics, getDb, liveSnapshots, users, workouts, type Db } from "./db";
 import { fetchDailyRange, type StoredWorkout } from "./health/metrics";
 import { calculateReadiness } from "./readiness";
+import { DRIFT_WINDOW_DAYS, wellnessSignals } from "./signals";
 import { decryptString, encryptString } from "./session";
 import type { DailyMetricSummary, HealthMetricsPayload } from "./types";
 import { shiftIso, todayIso } from "./utils";
 
-/** Days fetched for a newly connected user. */
-export const BACKFILL_DAYS = 30;
+/** Days fetched for a newly connected user: enough for the 3-month comparison. */
+export const BACKFILL_DAYS = DRIFT_WINDOW_DAYS;
 /** The nightly sync re-reads a few days so late device syncs still land. */
 const SYNC_LOOKBACK_DAYS = 3;
 const SYNC_CONCURRENCY = 4;
@@ -172,7 +173,7 @@ async function backfill(db: Db, userId: string, token: string, timeZone?: string
 export interface StoredHistory {
   db: Db;
   userId: string;
-  /** Stored days in the 30 days before today, oldest first. */
+  /** Stored days in the 90 days before today, oldest first. */
   days: DailyMetricSummary[];
   /** A live payload for today fetched within SNAPSHOT_TTL_MS, if any. */
   snapshot: HealthMetricsPayload | null;
@@ -185,7 +186,7 @@ export async function readStoredHistory(state: AuthState, today: string): Promis
   if (!db || !userId || state.isDemo) return null;
   try {
     const [days, snapshots] = await Promise.all([
-      loadDays(db, userId, shiftIso(today, -BASELINE_WINDOW_DAYS), today),
+      loadDays(db, userId, shiftIso(today, -DRIFT_WINDOW_DAYS), today),
       db
         .select({ payload: liveSnapshots.payload })
         .from(liveSnapshots)
@@ -219,8 +220,15 @@ export function finishLiveLoad(
   if (!stored) return payload;
   const { db, userId, days } = stored;
   const today = payload.today.date;
-  const baseline = baselineFromDays(days, today, BASELINE_WINDOW_DAYS, "stored");
-  const result = baseline.days >= MIN_STORED_BASELINE_DAYS ? { ...payload, baseline } : payload;
+  const baselineFrom = shiftIso(today, -BASELINE_WINDOW_DAYS);
+  const baseline = baselineFromDays(days.filter((d) => d.date >= baselineFrom), today, BASELINE_WINDOW_DAYS, "stored");
+  // Today joins the illness check only when its readings are its own, not carried over from an earlier night.
+  const signalDays = payload.freshness.fallbackDate ? days : [...days, payload.today];
+  const result: HealthMetricsPayload = {
+    ...payload,
+    ...(baseline.days >= MIN_STORED_BASELINE_DAYS && { baseline }),
+    signals: wellnessSignals(signalDays, today),
+  };
 
   try {
     after(async () => {

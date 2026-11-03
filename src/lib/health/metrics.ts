@@ -128,6 +128,36 @@ function indexRestingHeartRate(points: api.DataPoint[]): Map<string, number> {
   return index;
 }
 
+/** Google's nightly average breathing rate, keyed by the date the night is credited to. */
+function indexRespiratoryRate(points: api.DataPoint[]): Map<string, number> {
+  const index = new Map<string, number>();
+  for (const pt of points) {
+    const key = civilIso(pt.dailyRespiratoryRate?.date ?? pt.civilStartTime?.date);
+    const rate = Number(pt.dailyRespiratoryRate?.breathsPerMinute);
+    if (key && isPositive(rate)) index.set(key, round(rate, 1));
+  }
+  return index;
+}
+
+interface SkinTemperature {
+  celsius: number;
+  /** Against the device's own baseline, when it reports one. */
+  deviation: number | null;
+}
+
+function indexSkinTemperature(points: api.DataPoint[]): Map<string, SkinTemperature> {
+  const index = new Map<string, SkinTemperature>();
+  for (const pt of points) {
+    const t = pt.dailySleepTemperatureDerivations;
+    const key = civilIso(t?.date ?? pt.civilStartTime?.date);
+    const celsius = Number(t?.nightlyTemperatureCelsius);
+    if (!key || !Number.isFinite(celsius) || celsius <= 0) continue;
+    const base = Number(t?.baselineTemperatureCelsius);
+    index.set(key, { celsius: round(celsius, 2), deviation: Number.isFinite(base) && base > 0 ? round(celsius - base, 2) : null });
+  }
+  return index;
+}
+
 function latestRawHrv(points: api.DataPoint[]): number | null {
   const timestamp = (pt: api.DataPoint) => Date.parse(pt.sampleTime ?? pt.interval?.endTime ?? "") || 0;
   const newest = [...points].sort((a, b) => timestamp(b) - timestamp(a))[0];
@@ -167,6 +197,8 @@ interface DaySources {
   sleepByDate: Map<string, SleepRecord>;
   hrvByDate: Map<string, number>;
   restingByDate: Map<string, number>;
+  respiratoryByDate: Map<string, number>;
+  skinTempByDate: Map<string, SkinTemperature>;
 }
 
 /** Looks up a day's value in an index; the live "today" row may substitute the most recent day. */
@@ -179,6 +211,7 @@ function buildDay(src: DaySources, iso: string, today: string, lookup: Lookup = 
   const daySteps = Number(src.steps.get(iso)?.steps?.countSum ?? 0);
   const mm = Number(src.distance.get(iso)?.distance?.millimetersSum ?? 0);
   const night = lookup(src.sleepByDate, iso);
+  const skinTemp = lookup(src.skinTempByDate, iso);
   return {
     ...emptyDay(iso, dayLabel(iso, today)),
     steps: daySteps,
@@ -190,6 +223,9 @@ function buildDay(src: DaySources, iso: string, today: string, lookup: Lookup = 
     avgHeartRate: isPositive(hr?.beatsPerMinuteAvg) ? Math.round(hr.beatsPerMinuteAvg) : null,
     maxHeartRate: numOrNull(hr?.beatsPerMinuteMax),
     heartRateVariability: src.hrvByDate.get(iso) ?? null,
+    respiratoryRate: lookup(src.respiratoryByDate, iso) ?? null,
+    skinTemperatureCelsius: skinTemp?.celsius ?? null,
+    skinTemperatureDeviationCelsius: skinTemp?.deviation ?? null,
     activeZoneMinutes: zones.total,
     fatBurnMinutes: zones.fatBurn,
     cardioPeakMinutes: zones.cardioPeak,
@@ -242,11 +278,13 @@ export async function fetchDailyRange(
   for (let iso = startIso; iso <= endIso; iso = shiftIso(iso, 1)) dates.push(iso);
 
   // Lists are newest first, so the item caps reach back roughly as far as the range does.
-  const [rollups, sleep, dailyHrv, resting, exercise] = await Promise.all([
+  const [rollups, sleep, dailyHrv, resting, respiratory, skinTemp, exercise] = await Promise.all([
     fetchRollups(token, shiftIso(startIso, -1), shiftIso(endIso, 1)),
     api.listDataPointsPaged(token, "sleep", 25, dates.length * 2 + 10),
     api.listDataPointsPaged(token, "daily-heart-rate-variability", 25, dates.length + 10),
     api.listDataPointsPaged(token, "daily-resting-heart-rate", 25, dates.length + 10),
+    api.listDataPointsPaged(token, "daily-respiratory-rate", 25, dates.length + 10),
+    api.listDataPointsPaged(token, "daily-sleep-temperature-derivations", 25, dates.length + 10),
     api.listDataPointsPaged(token, "exercise", 25, dates.length * 2),
   ]);
   const [steps, calories, distance, azm, heartRate, floors] = rollups;
@@ -255,6 +293,8 @@ export async function fetchDailyRange(
     sleepByDate: parseSleepRecords(sleep, timeZone),
     hrvByDate: indexDailyHrv(dailyHrv),
     restingByDate: indexRestingHeartRate(resting),
+    respiratoryByDate: indexRespiratoryRate(respiratory),
+    skinTempByDate: indexSkinTemperature(skinTemp),
   };
   return {
     days: dates.map((iso) => buildDay(src, iso, shiftIso(endIso, 1))),
@@ -275,13 +315,15 @@ async function loadLiveMetrics(
 
   const intradayWindow = { start: new Date(`${shiftIso(today, -1)}T00:00:00Z`), end: new Date(`${shiftIso(today, 1)}T23:59:59Z`) };
 
-  const [rollups, sleep, dailyHrv, resting, spo2, body, exercise, intradaySteps, intradayHeartRate] = await Promise.all([
+  const [rollups, sleep, dailyHrv, resting, respiratory, skinTemp, spo2, body, exercise, intradaySteps, intradayHeartRate] = await Promise.all([
     // The full window (12 back, 2 ahead) covers the 7-day history plus UTC/civil skew at either end;
     // with settled days stored, a few days back still covers yesterday and today's fallback readings.
     fetchRollups(token, shiftIso(today, narrow ? -LIVE_LOOKBACK_DAYS : -12), shiftIso(today, 2)),
     api.listDataPoints(token, "sleep", narrow ? 6 : 20),
     api.listDataPoints(token, "daily-heart-rate-variability", narrow ? 4 : 10),
     api.listDataPoints(token, "daily-resting-heart-rate", narrow ? 4 : 10),
+    api.listDataPoints(token, "daily-respiratory-rate", narrow ? 4 : 10),
+    api.listDataPoints(token, "daily-sleep-temperature-derivations", narrow ? 4 : 10),
     api.listDataPoints(token, "oxygen-saturation", 20),
     // Weight and height change rarely: keep them for an hour instead of refetching every load.
     cached(`${state.scope}:body`, BODY_TTL_MS, () => fetchBodyStats(token)),
@@ -295,6 +337,8 @@ async function loadLiveMetrics(
     sleepByDate: parseSleepRecords(sleep?.dataPoints ?? [], timeZone),
     hrvByDate: indexDailyHrv(dailyHrv?.dataPoints ?? []),
     restingByDate: indexRestingHeartRate(resting?.dataPoints ?? []),
+    respiratoryByDate: indexRespiratoryRate(respiratory?.dataPoints ?? []),
+    skinTempByDate: indexSkinTemperature(skinTemp?.dataPoints ?? []),
   };
   const todayWorkouts = parseWorkouts(exercise?.dataPoints ?? [], today, timeZone, intradayHeartRate);
 

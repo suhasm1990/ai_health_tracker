@@ -16,6 +16,7 @@ import { ReadinessScore } from "@/components/ReadinessScore";
 import { SleepTimeline } from "@/components/SleepTimeline";
 import { StepChart } from "@/components/StepChart";
 import { TodayActivity } from "@/components/TodayActivity";
+import { WellnessSignals } from "@/components/WellnessSignals";
 import { useDashboardData, type DashboardInitial } from "@/hooks/useDashboardData";
 import type { DailyMetricSummary, DataFreshness } from "@/lib/types";
 import { formatShortDate, withUnit } from "@/lib/utils";
@@ -202,6 +203,7 @@ export function Dashboard({ initialAuthStatus, initialDevices, initialMetrics, i
 
         {showStaleNotice && <StaleDataNotice freshness={freshness} readingsFrom={readingsFrom} onRefresh={() => refreshAll()} />}
 
+        <WellnessSignals signals={metrics.signals} onAsk={(text) => chat.current?.ask(text)} />
         <ReadinessScore today={today} history7Days={history7Days} baseline={baseline} />
         <DailyBriefing today={today} history7Days={history7Days} baseline={baseline} userName={userName} onOpenChatWithPrompt={(text) => chat.current?.ask(text)} />
         <HabitStreaks today={today} history7Days={history7Days} />

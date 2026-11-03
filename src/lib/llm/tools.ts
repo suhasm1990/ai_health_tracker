@@ -4,6 +4,7 @@ import { baselineLabel, hasData } from "../baseline";
 import { getDb } from "../db";
 import { loadTrendData, type TrendDay } from "../history";
 import { calculateReadiness } from "../readiness";
+import { DRIFT_WINDOW_DAYS, wellnessSignals } from "../signals";
 import type { HealthMetricsPayload } from "../types";
 import { civilInZone, formatDuration, formatShortDate, meanOf, shiftIso, todayIso, withUnit } from "../utils";
 import type { ToolDefinition, ToolExecutionSummary } from "./types";
@@ -12,7 +13,7 @@ export const HEALTH_TOOLS: ToolDefinition[] = [
   {
     name: "get_today_health_summary",
     description:
-      "Get today's overall health and activity metrics including steps, distance, calories, active zone minutes, resting heart rate, average heart rate, blood oxygen (SpO2), HRV, weight/BMI and the readiness score.",
+      "Get today's overall health and activity metrics including steps, distance, calories, active zone minutes, resting heart rate, average heart rate, blood oxygen (SpO2), HRV, breathing rate, skin temperature, weight/BMI, the readiness score, and wellness signals (a possible illness pattern, 3-month changes).",
     parameters: { type: "object", properties: {}, required: [] },
   },
   {
@@ -54,7 +55,7 @@ export const HEALTH_TOOLS: ToolDefinition[] = [
   {
     name: "get_long_term_trends",
     description:
-      "Get the last 4 weeks, week by week: average steps, sleep, resting heart rate, HRV and readiness score, plus workout count and minutes, with the change from the first to the last week. Use for overall health, how someone has been doing lately, or monthly trends.",
+      "Get the last 4 weeks, week by week: average steps, sleep, resting heart rate, HRV and readiness score, plus workout count and minutes, with the change from the first to the last week, and wellness signals including the 3-month comparison. Use for overall health, how someone has been doing lately, or monthly trends.",
     parameters: { type: "object", properties: {}, required: [] },
   },
   {
@@ -148,6 +149,8 @@ const handlers: Record<string, ToolHandler> = {
         heartRateVariabilityMs: t.heartRateVariability,
         oxygenSaturationPercent: t.oxygenSaturation,
         respiratoryRateBreathsPerMin: t.respiratoryRate,
+        skinTemperatureVsBaselineCelsius: t.skinTemperatureDeviationCelsius ?? null,
+        wellnessSignals: payload.signals ?? "unavailable: needs stored history (connected account with a database)",
         weightKg: t.weightKg,
         bmi: t.bmi,
         sleep: { duration: formatDuration(t.sleepDurationMinutes), durationMinutes: t.sleepDurationMinutes, score: t.sleepScore },
@@ -317,7 +320,8 @@ const handlers: Record<string, ToolHandler> = {
 
     // Completed days only: today is still in progress.
     const today = ctx.clientDate ?? todayIso(ctx.clientTz);
-    const { days, workouts } = await loadTrendData(db, userId, shiftIso(today, -7 * TREND_WEEKS), today);
+    // 90 days so the 3-month comparison can run; the weekly view uses only the last 4 weeks.
+    const { days, workouts } = await loadTrendData(db, userId, shiftIso(today, -DRIFT_WINDOW_DAYS), today);
     const weeks = Array.from({ length: TREND_WEEKS }, (_, i) => {
       const weeksAgo = TREND_WEEKS - i;
       return weekSummary(days, workouts, shiftIso(today, -7 * weeksAgo), shiftIso(today, -7 * (weeksAgo - 1)));
@@ -341,6 +345,7 @@ const handlers: Record<string, ToolHandler> = {
           readinessScore: change((w) => w.avgReadinessScore),
           workoutsPerWeek: last.workouts - first.workouts,
         },
+        wellnessSignals: wellnessSignals(days.map((d) => d.day), today),
       },
       summary: summary(`${covered}/${7 * TREND_WEEKS} days; readiness ${first.avgReadinessScore ?? "n/a"} → ${last.avgReadinessScore ?? "n/a"}, resting HR ${withUnit(first.avgRestingHeartRateBpm, "bpm")} → ${withUnit(last.avgRestingHeartRateBpm, "bpm")}`),
     };

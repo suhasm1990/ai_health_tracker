@@ -149,6 +149,8 @@ export const emptyDay = (date: string, label: string): DailyMetricSummary => ({
   heartRateVariability: null,
   oxygenSaturation: null,
   respiratoryRate: null,
+  skinTemperatureCelsius: null,
+  skinTemperatureDeviationCelsius: null,
   sleepDurationMinutes: 0,
   sleepScore: 0,
   sleepEfficiency: null,

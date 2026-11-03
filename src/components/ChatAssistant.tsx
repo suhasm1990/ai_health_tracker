@@ -248,8 +248,8 @@ export function ChatAssistant({ ref, llm }: ChatAssistantProps) {
           </button>
         </div>
         <div className="mt-1.5 flex items-center justify-between text-[10px] text-slate-400 dark:text-slate-500 px-1">
-          <span>Enter to send, Shift+Enter for new line</span>
-          <span>Model agnostic • Tool-calling agent</span>
+          <span className="hidden sm:inline">Enter to send, Shift+Enter for new line</span>
+          <span>Can&apos;t detect emergencies. Chest pain or stroke signs: call emergency services.</span>
         </div>
       </div>
     </div>

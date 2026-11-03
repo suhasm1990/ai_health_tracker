@@ -22,6 +22,11 @@ export function Footer({ apiVersion, onOpenApiTester }: { apiVersion: string; on
           </div>
         </div>
 
+        <p className="text-[11px] text-slate-500 dark:text-slate-400">
+          This app can&apos;t detect or predict heart attacks, strokes or other emergencies. For chest pain, trouble breathing, or face
+          drooping, arm weakness or slurred speech, call emergency services immediately.
+        </p>
+
         <details className="pt-3 border-t border-slate-200/60 dark:border-slate-800/60 text-[11px] leading-relaxed text-slate-400 dark:text-slate-500">
           <summary className="cursor-pointer select-none font-medium text-slate-500 dark:text-slate-400">Medical disclaimer & trademarks</summary>
           <p className="mt-2">
