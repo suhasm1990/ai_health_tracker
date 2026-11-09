@@ -1,4 +1,5 @@
 import { getAuthState } from "@/lib/auth";
+import { guestId } from "@/lib/goals/guest";
 import { errorResponse, json } from "@/lib/http";
 import { runHealthAgent, type ToolContext } from "@/lib/llm/agent";
 import type { ChatMessage } from "@/lib/llm/types";
@@ -30,6 +31,7 @@ export async function POST(request: Request) {
       state: await getAuthState(),
       clientDate: isValidIsoDate(body.clientDate) ? body.clientDate : undefined,
       clientTz: typeof body.tz === "string" && body.tz.length <= 64 ? body.tz : undefined,
+      guestId: await guestId(),
     };
     return json(await runHealthAgent(messages, ctx));
   } catch (err) {

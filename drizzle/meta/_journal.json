@@ -43,6 +43,13 @@
       "when": 1793734190053,
       "tag": "0005_refetch_history_for_breathing_and_temperature",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1794254385763,
+      "tag": "0006_add_goals",
+      "breakpoints": true
     }
   ]
 }

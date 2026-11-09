@@ -1,4 +1,5 @@
 import { date, index, integer, jsonb, pgTable, primaryKey, real, text, timestamp } from "drizzle-orm/pg-core";
+import type { Goal } from "../goals/types";
 import type { DailyMetricSummary, HealthMetricsPayload, WorkoutSession } from "../types";
 
 const tstz = (name: string) => timestamp(name, { withTimezone: true });
@@ -62,6 +63,23 @@ export const liveSnapshots = pgTable(
     fetchedAt: tstz("fetched_at").notNull().defaultNow(),
   },
   (t) => [primaryKey({ columns: [t.userId, t.date] })]
+);
+
+/** Training programs and activity goals; the full goal (including a generated plan) lives in `data`. */
+export const goals = pgTable(
+  "goals",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    kind: text("kind").notNull(),
+    status: text("status").notNull().default("active"),
+    startDate: date("start_date", { mode: "string" }).notNull(),
+    endDate: date("end_date", { mode: "string" }).notNull(),
+    data: jsonb("data").$type<Goal>().notNull(),
+    createdAt: tstz("created_at").notNull().defaultNow(),
+    updatedAt: tstz("updated_at").notNull().defaultNow(),
+  },
+  (t) => [index("goals_user_status_idx").on(t.userId, t.status)]
 );
 
 export type UserRow = typeof users.$inferSelect;

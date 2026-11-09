@@ -42,7 +42,7 @@ Custom OpenAI-compatible endpoints: set `LLM_PROVIDER`, `LLM_API_KEY`, `LLM_MODE
 
 Set `DATABASE_URL` (Neon, Supabase, or local Postgres), and the build applies migrations automatically (or run `npm run db:migrate` by hand). Without it the app behaves as before.
 
-- **Stored:** daily summaries, workouts, and the refresh token (AES-256-GCM encrypted) used for nightly sync.
+- **Stored:** daily summaries, workouts, goals and training plans, and the refresh token (AES-256-GCM encrypted) used for nightly sync.
 - **Backfill:** the last 30 days are imported after you connect.
 - **Nightly sync:** Vercel Cron calls `/api/cron/sync` (requires `CRON_SECRET`).
 - **Baselines:** personal 30-day averages computed from stored history.
@@ -54,6 +54,7 @@ Other scripts: `npm run db:generate` (new migration after schema edits), `npm ru
 - **Readiness score (0–100)** from HRV, sleep, resting heart rate, and daily strain, with a written recommendation.
 - **Daily briefing and AI coach** with tool calling over live metrics (Gemini, NVIDIA NIM, OpenAI, or offline).
 - **Charts**: hourly steps and heart rate, 7-day trends, sleep stages with a clinical sleep quality index.
+- **Goals and training programs** set in chat: "train me for a half marathon on April 12" builds a week-by-week plan (base, build, peak, taper) with paces from your goal time; "300k steps in November" or "run 50 miles this month" tracks a total. Progress, a daily nudge and badges update from the wearable; plans can be changed, re-levelled or stopped by asking.
 - **Habit streaks**, device list with battery and sync status, shareable snapshot card, installable PWA, light/dark theme.
 - **API Explorer** for sending requests to Google Health endpoints and inspecting raw JSON.
 
@@ -62,13 +63,14 @@ Other scripts: `npm run db:generate` (new migration after schema edits), `npm ru
 ```text
 drizzle/           SQL migrations (drizzle-kit)
 src/
-├── app/           page.tsx (server-rendered) + api/ routes: auth, health/{metrics,devices,raw}, chat
+├── app/           page.tsx (server-rendered) + api/ routes: auth, health/{metrics,devices,raw}, chat, goals
 ├── components/    UI; ui/ holds shared primitives (Panel, StatTile, ViewToggle, …)
 ├── hooks/         useDashboardData (client data loading), useChartTheme
 └── lib/
     ├── auth.ts, session.ts     OAuth, token refresh, AES-256-GCM encrypted HTTP-only cookie
     ├── health/                 Google Health client, metrics assembly, sleep scoring, device discovery
     ├── db/                     optional Postgres persistence (Drizzle schema + lazy client)
+    ├── goals/                  training-plan generator, progress, badges, nudges, chat tools, storage
     ├── llm/                    provider-agnostic tool-calling loop + offline advisor
     ├── readiness.ts            readiness algorithm (pure)
     └── cache.ts, mockData.ts, utils.ts, constants.ts, types.ts

@@ -3,6 +3,8 @@
 import { BatteryCharging, Bot, ChevronDown, ChevronUp, Footprints, Heart, Loader2, Maximize2, Minimize2, Moon, Send, Sparkles, Trash2, User, Wrench, X } from "lucide-react";
 import { useEffect, useImperativeHandle, useRef, useState, type Ref } from "react";
 import { renderMarkdown } from "@/lib/markdown";
+import { SUGGESTION_ICONS } from "@/components/GoalsPanel";
+import { GOAL_MUTATION_TOOLS, type GoalSuggestion } from "@/lib/goals/types";
 import type { AgentResponse, ChatMessage, ToolExecutionSummary } from "@/lib/llm/types";
 import type { LlmStatus } from "@/lib/types";
 import { clientLocale, formatClock } from "@/lib/utils";
@@ -16,23 +18,28 @@ interface MessageItem extends ChatMessage {
 /** Imperative API so other dashboard panels can open the assistant with a question. */
 export interface ChatAssistantHandle {
   ask(text: string): void;
+  /** Opens the assistant without sending anything, e.g. to pick a goal suggestion. */
+  open(): void;
 }
 
 interface ChatAssistantProps {
   ref?: Ref<ChatAssistantHandle>;
   llm?: LlmStatus;
+  /** Goal ideas sized from the user's own data, offered as one-tap prompts. */
+  suggestions?: GoalSuggestion[];
+  /** Called after the coach creates or removes a goal, so the dashboard can reload. */
+  onGoalsChanged?: () => void;
 }
 
 const STARTER_PROMPTS = [
   { text: "How is my overall health today?", icon: Footprints },
   { text: "How well did I sleep last night?", icon: Moon },
-  { text: "Any suggestions on my sleep and recovery?", icon: Sparkles },
   { text: "Analyze my heart rate and cardio zones", icon: Heart },
   { text: "Check my wearable battery and sync status", icon: BatteryCharging },
 ];
 
 const WELCOME =
-  'Hello! I am your **AI Health Coach** (Powered by Google Health API).\n\nI can inspect your live wearable data using real-time tool calling. Ask me questions like:\n- *"How is my health today?"*\n- *"How well did I sleep?"*\n- *"Any suggestions to optimize my sleep and recovery?"*';
+  'Hello! I am your **AI Health Coach** (Powered by Google Health API).\n\nI can inspect your live wearable data using real-time tool calling. I can also **set goals and build training plans** that your dashboard tracks automatically:\n- *"Train me for a half marathon"*\n- *"Set a goal of 300k steps this month"*\n- *"How well did I sleep?"*';
 
 const assistantMessage = (content: string, extra: Partial<MessageItem> = {}): MessageItem => ({
   id: `assistant-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
@@ -53,9 +60,10 @@ async function requestReply(history: MessageItem[]): Promise<Partial<AgentRespon
   return data;
 }
 
+const CHIP = "inline-flex items-center space-x-1.5 px-2.5 py-1 rounded-full bg-white dark:bg-slate-800 border text-slate-700 dark:text-slate-300 hover:border-emerald-500 hover:text-emerald-600 dark:hover:text-emerald-400 text-[11px] transition-all shadow-xs";
 const ICON_BTN = "p-1.5 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors";
 
-export function ChatAssistant({ ref, llm }: ChatAssistantProps) {
+export function ChatAssistant({ ref, llm, suggestions = [], onGoalsChanged }: ChatAssistantProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
   const [input, setInput] = useState("");
@@ -67,6 +75,8 @@ export function ChatAssistant({ ref, llm }: ChatAssistantProps) {
   const inFlight = useRef<MessageItem[] | null>(null);
   const endRef = useRef<HTMLDivElement>(null);
   const loading = pending !== null;
+  /** The last reply created or removed a goal: offer follow-ups instead of leaving a dead end. */
+  const goalChanged = !loading && Boolean(messages[messages.length - 1]?.toolsCalled?.some((t) => GOAL_MUTATION_TOOLS.includes(t.name)));
 
   const submit = (raw: string) => {
     const query = raw.trim();
@@ -82,6 +92,9 @@ export function ChatAssistant({ ref, llm }: ChatAssistantProps) {
       setIsOpen(true);
       submit(text);
     },
+    open() {
+      setIsOpen(true);
+    },
   }));
 
   useEffect(() => {
@@ -91,6 +104,7 @@ export function ChatAssistant({ ref, llm }: ChatAssistantProps) {
       .then((data) => {
         setMessages((prev) => [...prev, assistantMessage(data.message?.content || "I couldn't generate a response.", { toolsCalled: data.toolsCalled ?? [] })]);
         if (data.provider && data.model) setProvider({ name: data.provider, model: data.model });
+        if (data.toolsCalled?.some((t) => GOAL_MUTATION_TOOLS.includes(t.name))) onGoalsChanged?.();
       })
       .catch((err: unknown) => {
         const reason = err instanceof Error ? err.message : "Network error";
@@ -100,6 +114,7 @@ export function ChatAssistant({ ref, llm }: ChatAssistantProps) {
         inFlight.current = null;
         setPending(null);
       });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the callback is only used when a reply lands
   }, [pending]);
 
   useEffect(() => {
@@ -216,16 +231,26 @@ export function ChatAssistant({ ref, llm }: ChatAssistantProps) {
         <div ref={endRef} />
       </div>
 
-      {messages.length <= 3 && (
-        <div className="px-4 py-2 border-t border-slate-100 dark:border-slate-800/60 bg-slate-50/50 dark:bg-slate-950/30">
-          <div className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 mb-1.5">Suggested questions:</div>
+      {(messages.length <= 3 || goalChanged) && (
+        <div className="px-4 py-2 border-t border-slate-100 dark:border-slate-800/60 bg-slate-50/50 dark:bg-slate-950/30 max-h-32 overflow-y-auto">
+          <div className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 mb-1.5">{goalChanged ? "What next?" : "Try asking:"}</div>
           <div className="flex flex-wrap gap-1.5">
-            {STARTER_PROMPTS.map(({ text, icon: Icon }) => (
-              <button key={text} onClick={() => submit(text)} disabled={loading} className="inline-flex items-center space-x-1.5 px-2.5 py-1 rounded-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:border-emerald-500 hover:text-emerald-600 dark:hover:text-emerald-400 text-[11px] transition-all shadow-xs">
-                <Icon className="w-3 h-3 text-emerald-500" />
-                <span>{text}</span>
-              </button>
-            ))}
+            {suggestions.slice(0, goalChanged ? 4 : 3).map(({ label, prompt, icon }) => {
+              const Icon = SUGGESTION_ICONS[icon];
+              return (
+                <button key={prompt} onClick={() => submit(prompt)} disabled={loading} className={`${CHIP} border-emerald-500/40 bg-emerald-500/5`}>
+                  <Icon className="w-3 h-3 text-emerald-500" />
+                  <span>{label}</span>
+                </button>
+              );
+            })}
+            {!goalChanged &&
+              STARTER_PROMPTS.map(({ text, icon: Icon }) => (
+                <button key={text} onClick={() => submit(text)} disabled={loading} className={`${CHIP} border-slate-200 dark:border-slate-700`}>
+                  <Icon className="w-3 h-3 text-emerald-500" />
+                  <span>{text}</span>
+                </button>
+              ))}
           </div>
         </div>
       )}
@@ -237,7 +262,7 @@ export function ChatAssistant({ ref, llm }: ChatAssistantProps) {
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={onKeyDown}
-            placeholder="Ask about your health, sleep, recovery, or heart rate..."
+            placeholder="Ask about your health, or set a goal..."
             rows={1}
             disabled={loading}
             aria-label="Message"

@@ -7,6 +7,7 @@ import { ChatAssistant, type ChatAssistantHandle } from "@/components/ChatAssist
 import { DailyBriefing } from "@/components/DailyBriefing";
 import { DeviceList } from "@/components/DeviceList";
 import { Footer } from "@/components/Footer";
+import { GoalsPanel } from "@/components/GoalsPanel";
 import { HabitStreaks } from "@/components/HabitStreaks";
 import { Header } from "@/components/Header";
 import { HeartRateChart } from "@/components/HeartRateChart";
@@ -18,6 +19,7 @@ import { StepChart } from "@/components/StepChart";
 import { TodayActivity } from "@/components/TodayActivity";
 import { WellnessSignals } from "@/components/WellnessSignals";
 import { useDashboardData, type DashboardInitial } from "@/hooks/useDashboardData";
+import { useGoals } from "@/hooks/useGoals";
 import type { DailyMetricSummary, DataFreshness } from "@/lib/types";
 import { formatShortDate, withUnit } from "@/lib/utils";
 
@@ -137,6 +139,12 @@ export function Dashboard({ initialAuthStatus, initialDevices, initialMetrics, i
   const [apiTesterOpen, setApiTesterOpen] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
   const chat = useRef<ChatAssistantHandle>(null);
+  const goals = useGoals(`${authStatus.isDemo}:${authStatus.user?.email ?? ""}`);
+  const ask = (text: string) => chat.current?.ask(text);
+  const refresh = (message?: string) => {
+    void goals.refresh();
+    return refreshAll(message);
+  };
 
   const { today, history7Days, baseline, freshness } = metrics;
   const userName = authStatus.user?.displayName;
@@ -150,7 +158,7 @@ export function Dashboard({ initialAuthStatus, initialDevices, initialMetrics, i
         devices={devices}
         isRefreshing={isRefreshing}
         onToggleDemo={toggleDemo}
-        onRefresh={() => refreshAll()}
+        onRefresh={() => refresh()}
         onOpenApiTester={() => setApiTesterOpen(true)}
         onOpenShareCard={() => setShareOpen(true)}
       />
@@ -186,7 +194,7 @@ export function Dashboard({ initialAuthStatus, initialDevices, initialMetrics, i
           </div>
         )}
 
-        <DeviceList devices={devices} onSync={() => refreshAll("Devices synced and metrics refreshed.")} isSyncing={isRefreshing} isDemo={authStatus.isDemo} onTryDemo={toggleDemo} />
+        <DeviceList devices={devices} onSync={() => refresh("Devices synced and metrics refreshed.")} isSyncing={isRefreshing} isDemo={authStatus.isDemo} onTryDemo={toggleDemo} />
 
         <div className="hidden sm:flex items-center justify-between text-xs text-slate-500 dark:text-slate-400 pt-1">
           <div className="flex items-center space-x-2">
@@ -201,9 +209,10 @@ export function Dashboard({ initialAuthStatus, initialDevices, initialMetrics, i
           <span className="text-slate-400 dark:text-slate-500 font-mono text-[11px]">Google Health API {authStatus.apiVersion} REST</span>
         </div>
 
-        {showStaleNotice && <StaleDataNotice freshness={freshness} readingsFrom={readingsFrom} onRefresh={() => refreshAll()} />}
+        {showStaleNotice && <StaleDataNotice freshness={freshness} readingsFrom={readingsFrom} onRefresh={() => refresh()} />}
 
-        <WellnessSignals signals={metrics.signals} onAsk={(text) => chat.current?.ask(text)} />
+        <WellnessSignals signals={metrics.signals} onAsk={ask} />
+        <GoalsPanel data={goals.data} error={goals.error} onAsk={ask} onOpenChat={() => chat.current?.open()} onRemove={goals.archive} />
         <ReadinessScore today={today} history7Days={history7Days} baseline={baseline} />
         <DailyBriefing today={today} history7Days={history7Days} baseline={baseline} userName={userName} onOpenChatWithPrompt={(text) => chat.current?.ask(text)} />
         <HabitStreaks today={today} history7Days={history7Days} />
@@ -227,7 +236,7 @@ export function Dashboard({ initialAuthStatus, initialDevices, initialMetrics, i
 
       {apiTesterOpen && <ApiTester onClose={() => setApiTesterOpen(false)} apiVersion={authStatus.apiVersion} />}
       {shareOpen && <ShareCardModal onClose={() => setShareOpen(false)} today={today} userName={userName} />}
-      <ChatAssistant ref={chat} llm={authStatus.llm} />
+      <ChatAssistant ref={chat} llm={authStatus.llm} suggestions={goals.data?.suggestions} onGoalsChanged={goals.refresh} />
       <PwaInstallBanner />
     </div>
   );

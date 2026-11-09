@@ -302,6 +302,21 @@ export async function fetchDailyRange(
   };
 }
 
+const RECENT_WORKOUTS_TTL_MS = 5 * 60 * 1000;
+
+/**
+ * Workouts of the last `days` days (today included), newest sync state, in one Google call.
+ * Goals use this so a run counts as soon as the device syncs, not after the nightly import.
+ */
+export async function fetchRecentWorkouts(state: AuthState, today: string, timeZone: string | undefined, days: number): Promise<StoredWorkout[]> {
+  return cached(`${state.scope}:recent-workouts:${today}:${days}`, RECENT_WORKOUTS_TTL_MS, async () => {
+    const token = await getValidAccessToken(state.session);
+    if (!token) return [];
+    const points = await api.listDataPointsPaged(token, "exercise", 25, days * 3);
+    return lastDays(today, days).flatMap((iso) => parseWorkouts(points, iso, timeZone).map((session) => ({ date: iso, session })));
+  });
+}
+
 /** Fetches today's payload; days found in `settled` are reused instead of requested. */
 async function loadLiveMetrics(
   state: AuthState,

@@ -2,6 +2,7 @@ import type { AuthState } from "../auth";
 import { getAllHealthMetrics, getPairedDevices } from "../health";
 import { baselineLabel, hasData } from "../baseline";
 import { getDb } from "../db";
+import { GOAL_TOOLS, goalHandlers } from "../goals/tools";
 import { loadTrendData, type TrendDay } from "../history";
 import { calculateReadiness } from "../readiness";
 import { DRIFT_WINDOW_DAYS, wellnessSignals } from "../signals";
@@ -64,6 +65,7 @@ export const HEALTH_TOOLS: ToolDefinition[] = [
       "Get paired trackers and smartwatches (e.g. Fitbit Air, Pixel Watch) with battery percentage, battery status and last synchronisation time.",
     parameters: { type: "object", properties: {}, required: [] },
   },
+  ...GOAL_TOOLS,
 ];
 
 export interface ToolResult {
@@ -78,6 +80,8 @@ export interface ToolContext {
   state: AuthState;
   clientDate?: string;
   clientTz?: string;
+  /** Guest cookie id for signed-out visitors, so their demo goals stay their own. */
+  guestId?: string;
 }
 
 type ToolHandler = (args: ToolArgs, ctx: ToolContext) => Promise<ToolResult>;
@@ -379,7 +383,7 @@ const handlers: Record<string, ToolHandler> = {
 };
 
 export async function executeHealthTool(name: string, args: ToolArgs, ctx: ToolContext): Promise<ToolResult> {
-  const handler = handlers[name];
+  const handler = handlers[name] ?? goalHandlers[name];
   if (!handler) throw new Error(`Unknown health tool: ${name}`);
   return handler(args, ctx);
 }
