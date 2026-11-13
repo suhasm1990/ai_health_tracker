@@ -49,11 +49,21 @@ const assistantMessage = (content: string, extra: Partial<MessageItem> = {}): Me
   ...extra,
 });
 
-async function requestReply(history: MessageItem[]): Promise<Partial<AgentResponse>> {
+const MODEL_STORAGE_KEY = "health-ai-model";
+
+function readStoredModel(): string | null {
+  try {
+    return localStorage.getItem(MODEL_STORAGE_KEY);
+  } catch {
+    return null;
+  }
+}
+
+async function requestReply(history: MessageItem[], modelId?: string): Promise<Partial<AgentResponse>> {
   const res = await fetch("/api/chat", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ messages: history.map(({ role, content }) => ({ role, content })), ...clientLocale() }),
+    body: JSON.stringify({ messages: history.map(({ role, content }) => ({ role, content })), ...clientLocale(), ...(modelId ? { modelId } : {}) }),
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || `Chat error (${res.status})`);
@@ -68,6 +78,21 @@ export function ChatAssistant({ ref, llm, suggestions = [], onGoalsChanged }: Ch
   const [isExpanded, setIsExpanded] = useState(false);
   const [input, setInput] = useState("");
   const [provider, setProvider] = useState({ name: llm?.provider ?? "Sandbox Health Advisor", model: llm?.model ?? "ai-health-tracker-agent" });
+  const models = llm?.models ?? [];
+  /** The free model picked in the header; remembered per browser. Falls back to the server's default. */
+  // The panel opens closed, so reading storage here cannot change the first (server-rendered) markup.
+  const [modelId, setModelId] = useState<string | undefined>(() => {
+    const stored = readStoredModel();
+    return stored && llm?.models?.some((m) => m.id === stored && m.available) ? stored : llm?.defaultModelId;
+  });
+  const pickModel = (id: string) => {
+    setModelId(id);
+    try {
+      localStorage.setItem(MODEL_STORAGE_KEY, id);
+    } catch {
+      /* storage blocked; the choice lasts for this page only */
+    }
+  };
   const [messages, setMessages] = useState<MessageItem[]>(() => [assistantMessage(WELCOME, { id: "welcome" })]);
   /** Conversation awaiting a reply; non-null while a request is in flight. */
   const [pending, setPending] = useState<MessageItem[] | null>(null);
@@ -100,7 +125,7 @@ export function ChatAssistant({ ref, llm, suggestions = [], onGoalsChanged }: Ch
   useEffect(() => {
     if (!pending || inFlight.current === pending) return;
     inFlight.current = pending;
-    requestReply(pending)
+    requestReply(pending, modelId)
       .then((data) => {
         setMessages((prev) => [...prev, assistantMessage(data.message?.content || "I couldn't generate a response.", { toolsCalled: data.toolsCalled ?? [] })]);
         if (data.provider && data.model) setProvider({ name: data.provider, model: data.model });
@@ -162,9 +187,29 @@ export function ChatAssistant({ ref, llm, suggestions = [], onGoalsChanged }: Ch
               <h3 className="font-bold text-sm text-slate-900 dark:text-white">Health AI Assistant</h3>
               <span className="inline-flex rounded-full h-2 w-2 bg-emerald-500" title="Online" />
             </div>
-            <div className="text-[11px] text-slate-500 dark:text-slate-400 truncate max-w-[220px]">
-              {provider.name} ({provider.model})
-            </div>
+            {models.length > 0 ? (
+              <label className="flex items-center text-[11px] text-slate-500 dark:text-slate-400">
+                <span className="sr-only">AI model</span>
+                <select
+                  value={modelId ?? ""}
+                  onChange={(e) => pickModel(e.target.value)}
+                  disabled={loading}
+                  title={`${provider.name} (${provider.model})`}
+                  className="max-w-[220px] truncate bg-transparent border border-slate-200 dark:border-slate-700 rounded-md px-1.5 py-0.5 text-[11px] text-slate-600 dark:text-slate-300 focus:outline-none focus:border-emerald-500 disabled:opacity-60"
+                >
+                  {!modelId && <option value="">{provider.name} ({provider.model})</option>}
+                  {models.map((m) => (
+                    <option key={m.id} value={m.id} disabled={!m.available}>
+                      {m.label} · Free{m.available ? "" : " (API key not set)"}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ) : (
+              <div className="text-[11px] text-slate-500 dark:text-slate-400 truncate max-w-[220px]">
+                {provider.name} ({provider.model})
+              </div>
+            )}
           </div>
         </div>
         <div className="flex items-center space-x-1">

@@ -1,7 +1,7 @@
 import type { NextResponse } from "next/server";
 import { getSession, updateSession, cookieOptions, type UserSession } from "./session";
 import { cached } from "./cache";
-import { PROVIDER_LABELS, resolveLlmConfig } from "./llm/config";
+import { listFreeModels, PROVIDER_LABELS, resolveLlmConfig, selectedModelId } from "./llm/config";
 import { API_VERSION } from "./health/client";
 import type { AuthStatus, UserProfile } from "./types";
 
@@ -168,6 +168,12 @@ export async function buildAuthStatus({ state: auth, force = false }: { state?: 
     user: (await getUserProfile(state, force)) ?? undefined,
     scopesGranted: state.isAuthenticated ? state.session?.scopes ?? [] : [],
     apiVersion: API_VERSION,
-    llm: { provider: PROVIDER_LABELS[llm.provider] ?? llm.provider, model: llm.model, hasApiKey: Boolean(llm.apiKey) },
+    llm: {
+      provider: PROVIDER_LABELS[llm.provider] ?? llm.provider,
+      model: llm.model,
+      hasApiKey: Boolean(llm.apiKey),
+      models: listFreeModels().map(({ id, label, model, available }) => ({ id, label, model, available })),
+      defaultModelId: selectedModelId(llm),
+    },
   };
 }

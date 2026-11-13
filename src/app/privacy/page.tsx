@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import type { ReactNode } from "react";
-import { PROVIDER_LABELS, resolveLlmConfig } from "@/lib/llm/config";
+import { listFreeModels, PROVIDER_LABELS, resolveLlmConfig } from "@/lib/llm/config";
 
 export const metadata: Metadata = {
   title: "Privacy Policy | AI Health Tracker",
@@ -9,7 +9,7 @@ export const metadata: Metadata = {
 };
 
 const CONTACT_EMAIL = "suhu.90@gmail.com";
-const EFFECTIVE_DATE = "November 2, 2026";
+const EFFECTIVE_DATE = "November 13, 2026";
 
 function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
@@ -24,7 +24,16 @@ const LINK = "text-emerald-700 underline underline-offset-2 dark:text-emerald-40
 
 export default function PrivacyPage() {
   const llm = resolveLlmConfig();
-  const aiProvider = llm.provider === "mock" ? null : PROVIDER_LABELS[llm.provider] ?? "a third-party AI provider";
+  // Every provider the assistant can use: the default plus any free model the chat's picker offers.
+  const providers = [
+    ...new Set([
+      ...(llm.provider === "mock" ? [] : [llm.provider]),
+      ...listFreeModels().filter((m) => m.available).map((m) => m.provider),
+    ]),
+  ];
+  const providerNames = providers.map((p) => PROVIDER_LABELS[p] ?? "a third-party AI provider");
+  const aiProvider = providerNames.length ? providerNames.join(" or ") : null;
+  const usesGemini = providers.includes("google");
   const contact = <a className={LINK} href={`mailto:${CONTACT_EMAIL}`}>{CONTACT_EMAIL}</a>;
 
   return (
@@ -59,8 +68,12 @@ export default function PrivacyPage() {
           <li>
             To answer questions in the AI health assistant.
             {aiProvider
-              ? ` When you use it, the health data needed to answer your question is sent to ${aiProvider} to generate the reply.`
+              ? ` When you use it, the health data needed to answer your question is sent to ${aiProvider}${
+                  providerNames.length > 1 ? ", depending on the model you pick in the assistant," : ""
+                } to generate the reply.`
               : " The assistant currently runs within the app, and no health data is sent to an outside AI provider."}
+            {usesGemini &&
+              " Google Gemini is used on Google's free tier, and Google may use what is sent to it, including your question and the health data in it, to improve its products. Pick NVIDIA Nemotron in the assistant if you prefer that your data is not sent to Google for this."}
           </li>
           <li>
             To let the app owner check that everyone&apos;s sync is working and spot possible concerns. The owner can see your name,
@@ -69,7 +82,10 @@ export default function PrivacyPage() {
             last 3 months, and which kinds of readings your device sends (for example, whether HRV arrives).
           </li>
         </ul>
-        <p>Your data is not used for advertising, is not sold, and is not used to train AI models.</p>
+        <p>
+          Your data is not used for advertising and is not sold.
+          {usesGemini ? " Apart from Google Gemini's free tier described above, it is not used to train AI models." : " It is not used to train AI models."}
+        </p>
       </Section>
 
       <Section title="What we store">
@@ -88,7 +104,7 @@ export default function PrivacyPage() {
       <Section title="Who we share it with">
         <p>
           Only the service providers needed to run the app: Google (the source of your data), Vercel (hosting), the database host
-          {aiProvider ? `, and ${aiProvider} for the AI assistant` : ""}. We do not share your data with anyone else.
+          {providerNames.length ? `, and ${providerNames.join(" and ")} for the AI assistant` : ""}. We do not share your data with anyone else.
         </p>
       </Section>
 

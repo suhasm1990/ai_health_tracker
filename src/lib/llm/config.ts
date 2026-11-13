@@ -39,11 +39,74 @@ const NVIDIA_OPTIONS = { chat_template_kwargs: { enable_thinking: false } };
 
 export const MOCK_CONFIG: LlmConfig = { provider: "mock", apiKey: "", model: "sandbox-advisor" };
 
+/** A model the user can pick in the chat. Only free-tier models are listed for now. */
+export interface ModelOption {
+  id: string;
+  label: string;
+  provider: LlmProvider;
+  /** Model ID sent to the provider. */
+  model: string;
+  /** False when the server has no API key for this provider, so it cannot be picked. */
+  available: boolean;
+}
+
 /**
- * Provider selection is server-side only (environment variables), in priority order:
+ * The free models offered in the chat's model picker. The client only ever sends an `id` from this
+ * list; keys, endpoints and model IDs stay on the server.
+ */
+export function listFreeModels(env: NodeJS.ProcessEnv = process.env): ModelOption[] {
+  const geminiKey = env.GEMINI_API_KEY || env.GOOGLE_API_KEY;
+  return [
+    {
+      id: "nemotron-ultra",
+      label: "NVIDIA Nemotron 3 Ultra",
+      provider: "nvidia",
+      model: env.NVIDIA_MODEL || DEFAULT_MODELS.nvidia!,
+      available: Boolean(env.NVIDIA_API_KEY),
+    },
+    {
+      id: "gemini-4-hydrogen",
+      label: "Gemini 4 Hydrogen",
+      provider: "google",
+      model: GEMINI_HYDROGEN_MODEL,
+      available: Boolean(geminiKey),
+    },
+  ];
+}
+
+/** Gemini 4 Hydrogen's API model ID on the Gemini Developer API (free tier with an AI Studio key). */
+const GEMINI_HYDROGEN_MODEL = "gemini-4-hydrogen";
+
+/** The config for a model picked in the chat, or null when the ID is unknown or its key is missing. */
+function configForOption(id: string, env: NodeJS.ProcessEnv): LlmConfig | null {
+  const option = listFreeModels(env).find((m) => m.id === id && m.available);
+  if (!option) return null;
+  if (option.provider === "nvidia") {
+    return {
+      provider: "nvidia",
+      apiKey: env.NVIDIA_API_KEY!,
+      model: option.model,
+      fastModel: env.NVIDIA_FAST_MODEL || undefined,
+      requestOptions: NVIDIA_OPTIONS,
+      baseUrl: env.NVIDIA_BASE_URL || ENDPOINTS.nvidia,
+    };
+  }
+  return { provider: "google", apiKey: (env.GEMINI_API_KEY || env.GOOGLE_API_KEY)!, model: option.model };
+}
+
+/** The picker entry matching a resolved config, so the UI can show which model is active. */
+export function selectedModelId(config: LlmConfig, env: NodeJS.ProcessEnv = process.env): string | undefined {
+  return listFreeModels(env).find((m) => m.available && m.provider === config.provider && m.model === config.model)?.id;
+}
+
+/**
+ * Provider selection is server-side (environment variables). A model picked in the chat (`modelId`)
+ * wins when it is a known free model whose key is set; otherwise, in priority order:
  * NVIDIA NIM, Google Gemini, generic LLM_* variables, OpenAI, then the offline advisor.
  */
-export function resolveLlmConfig(env: NodeJS.ProcessEnv = process.env): LlmConfig {
+export function resolveLlmConfig(env: NodeJS.ProcessEnv = process.env, modelId?: string): LlmConfig {
+  const picked = modelId ? configForOption(modelId, env) : null;
+  if (picked) return picked;
   if (env.NVIDIA_API_KEY) {
     return {
       provider: "nvidia",

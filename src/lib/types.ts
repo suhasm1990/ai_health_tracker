@@ -173,6 +173,10 @@ export interface LlmStatus {
   provider: string;
   model: string;
   hasApiKey: boolean;
+  /** Free models the chat can switch between; `available` is false when the server lacks that key. */
+  models?: { id: string; label: string; model: string; available: boolean }[];
+  /** The picker entry used when the user has not chosen one. */
+  defaultModelId?: string;
 }
 
 export interface AuthStatus {
