@@ -92,11 +92,11 @@ const toResponse = (run: AgentRun, provider: string, model: string): AgentRespon
 });
 
 /** Answers with the configured provider, falling back to the offline advisor on any provider failure. */
-export async function runHealthAgent(messages: ChatMessage[], ctx: ToolContext): Promise<AgentResponse> {
+export async function runHealthAgent(messages: ChatMessage[], ctx: ToolContext, modelId?: string): Promise<AgentResponse> {
   const urgent = emergencyReply([...messages].reverse().find((m) => m.role === "user")?.content);
   if (urgent) return { message: { role: "assistant", content: urgent }, toolsCalled: [], provider: "Safety check", model: "built-in" };
 
-  const config = resolveLlmConfig();
+  const config = resolveLlmConfig(process.env, modelId);
   if (!config.apiKey) return toResponse(await runMockAdvisor(messages, ctx), PROVIDER_LABELS.mock, MOCK_MODEL);
 
   try {

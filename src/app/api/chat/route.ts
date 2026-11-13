@@ -8,7 +8,8 @@ import { isValidIsoDate } from "@/lib/utils";
 const MAX_MESSAGES = 40;
 const MAX_CONTENT_CHARS = 4000;
 
-/** Accepts only user/assistant turns with string content; provider configuration is never taken from the client. */
+/** Accepts only user/assistant turns with string content; provider configuration is never taken from the client
+ * beyond a model ID that must match the server's free-model list. */
 function parseMessages(input: unknown): ChatMessage[] | null {
   if (!Array.isArray(input) || input.length === 0 || input.length > MAX_MESSAGES) return null;
   const messages: ChatMessage[] = [];
@@ -33,7 +34,9 @@ export async function POST(request: Request) {
       clientTz: typeof body.tz === "string" && body.tz.length <= 64 ? body.tz : undefined,
       guestId: await guestId(),
     };
-    return json(await runHealthAgent(messages, ctx));
+    // Only an ID from the server's free-model list; anything else falls back to the default model.
+    const modelId = typeof body.modelId === "string" && body.modelId.length <= 64 ? body.modelId : undefined;
+    return json(await runHealthAgent(messages, ctx, modelId));
   } catch (err) {
     return errorResponse(err, "Failed to process chat message");
   }
