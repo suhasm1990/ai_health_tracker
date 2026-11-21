@@ -160,10 +160,10 @@ export function ChatAssistant({ ref, llm, suggestions = [], onGoalsChanged }: Ch
       <button
         onClick={() => setIsOpen(true)}
         aria-label="Open Health AI Assistant"
-        className="fixed bottom-4 right-4 sm:bottom-6 sm:right-6 z-40 flex items-center sm:space-x-2.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white p-3.5 sm:px-4 sm:py-3 rounded-full shadow-xl shadow-emerald-900/30 hover:shadow-emerald-900/50 hover:scale-105 active:scale-95 transition-all duration-200"
+        className="hidden sm:flex fixed bottom-6 right-6 z-40 items-center sm:space-x-2.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white p-3.5 sm:px-4 sm:py-3 rounded-full shadow-xl shadow-emerald-900/30 hover:shadow-emerald-900/50 hover:scale-105 active:scale-95 transition-all duration-200"
       >
         <Sparkles className="w-5 h-5 text-emerald-100 shrink-0 animate-pulse" />
-        <span className="hidden sm:inline font-semibold text-sm tracking-tight pr-1">Ask Health AI</span>
+        <span className="hidden sm:inline font-semibold text-sm tracking-tight pr-1">Ask your coach</span>
       </button>
     );
   }
@@ -171,7 +171,7 @@ export function ChatAssistant({ ref, llm, suggestions = [], onGoalsChanged }: Ch
   return (
     <div
       className={`fixed z-50 transition-all duration-300 flex flex-col bg-white/95 dark:bg-slate-900/95 backdrop-blur-xl border border-slate-200 dark:border-slate-800 shadow-2xl rounded-3xl overflow-hidden ${
-        isExpanded ? "inset-4 sm:inset-10" : "bottom-6 right-6 w-full max-w-[440px] h-[640px] max-h-[90vh] max-sm:inset-x-2 max-sm:bottom-2 max-sm:max-w-none"
+        isExpanded ? "inset-4 sm:inset-10" : "bottom-6 right-6 w-full max-w-[440px] h-[640px] max-h-[90vh] max-sm:inset-0 max-sm:h-auto max-sm:max-h-none max-sm:max-w-none max-sm:rounded-none max-sm:pb-[env(safe-area-inset-bottom)]"
       }`}
       role="dialog"
       aria-label="Health AI Assistant"
@@ -184,7 +184,7 @@ export function ChatAssistant({ ref, llm, suggestions = [], onGoalsChanged }: Ch
           </div>
           <div>
             <div className="flex items-center space-x-2">
-              <h3 className="font-bold text-sm text-slate-900 dark:text-white">Health AI Assistant</h3>
+              <h3 className="font-bold text-sm text-slate-900 dark:text-white">AI Coach</h3>
               <span className="inline-flex rounded-full h-2 w-2 bg-emerald-500" title="Online" />
             </div>
             {models.length > 0 ? (

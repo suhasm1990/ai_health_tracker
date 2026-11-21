@@ -113,10 +113,6 @@ export function Header({ authStatus, devices, isRefreshing, onToggleDemo, onRefr
             <Share2 className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 group-hover:text-white" />
             <span>Share</span>
           </button>
-          <button onClick={onOpenApiTester} title="API Playground" className={`flex items-center space-x-1 p-2 text-xs font-medium ${SECONDARY_BTN}`}>
-            <Code2 className="w-4 h-4 text-cyan-600 dark:text-cyan-400" />
-            <span className="hidden xl:inline">API Tester</span>
-          </button>
 
           {authStatus.isAuthenticated ? (
             <div className="flex items-center space-x-2 pl-1 border-l border-slate-200 dark:border-slate-700/60">

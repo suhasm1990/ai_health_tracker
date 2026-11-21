@@ -60,7 +60,7 @@ export function PwaInstallBanner() {
   if (!visible) return null;
 
   return (
-    <div className="fixed bottom-4 left-4 right-4 sm:left-auto sm:right-4 sm:max-w-md z-40 animate-in slide-in-from-bottom duration-300">
+    <div className="fixed bottom-24 left-4 right-4 sm:bottom-4 sm:left-auto sm:right-4 sm:max-w-md z-40 animate-in slide-in-from-bottom duration-300">
       <div className="relative rounded-2xl bg-slate-900/95 border border-slate-700/90 shadow-2xl p-4 backdrop-blur-md text-white">
         <button onClick={dismiss} aria-label="Dismiss" className="absolute top-3 right-3 text-slate-400 hover:text-white p-1">
           <X className="w-4 h-4" />

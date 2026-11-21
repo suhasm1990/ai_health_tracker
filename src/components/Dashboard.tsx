@@ -3,6 +3,8 @@
 import { CheckCircle2, CloudOff, Flame, Footprints, Heart, Scale, Sparkles, Wind, Zap } from "lucide-react";
 import dynamic from "next/dynamic";
 import { useRef, useState } from "react";
+import { TodayPlan } from "@/components/coach/TodayPlan";
+import { BottomTabBar, TopTabs } from "@/components/shell/AppNav";
 import { ChatAssistant, type ChatAssistantHandle } from "@/components/ChatAssistant";
 import { DailyBriefing } from "@/components/DailyBriefing";
 import { DeviceList } from "@/components/DeviceList";
@@ -20,6 +22,7 @@ import { TodayActivity } from "@/components/TodayActivity";
 import { WellnessSignals } from "@/components/WellnessSignals";
 import { useDashboardData, type DashboardInitial } from "@/hooks/useDashboardData";
 import { useGoals } from "@/hooks/useGoals";
+import { useTab } from "@/hooks/useTab";
 import type { DailyMetricSummary, DataFreshness } from "@/lib/types";
 import { formatShortDate, withUnit } from "@/lib/utils";
 
@@ -138,6 +141,7 @@ export function Dashboard({ initialAuthStatus, initialDevices, initialMetrics, i
   });
   const [apiTesterOpen, setApiTesterOpen] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
+  const [tab, setTab] = useTab();
   const chat = useRef<ChatAssistantHandle>(null);
   const goals = useGoals(`${authStatus.isDemo}:${authStatus.user?.email ?? ""}`);
   const ask = (text: string) => chat.current?.ask(text);
@@ -151,6 +155,9 @@ export function Dashboard({ initialAuthStatus, initialDevices, initialMetrics, i
   const readingsFrom = freshness.fallbackDate ? formatShortDate(freshness.fallbackDate) : null;
   const showStaleNotice = !authStatus.isDemo && !isInitialLoading && !freshness.syncedToday;
 
+  const tabProps = { tab, onChange: setTab };
+  const staleNotice = showStaleNotice && <StaleDataNotice freshness={freshness} readingsFrom={readingsFrom} onRefresh={() => refresh()} />;
+
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 flex flex-col transition-colors duration-200">
       <Header
@@ -163,7 +170,7 @@ export function Dashboard({ initialAuthStatus, initialDevices, initialMetrics, i
         onOpenShareCard={() => setShareOpen(true)}
       />
 
-      <main className="flex-1 max-w-7xl w-full mx-auto px-3 sm:px-6 lg:px-8 py-4 sm:py-6 space-y-4 sm:space-y-6">
+      <main className="flex-1 max-w-7xl w-full mx-auto px-3 sm:px-6 lg:px-8 pt-4 sm:pt-6 pb-28 sm:pb-10 space-y-4 sm:space-y-6">
         {toast && (
           <div role="status" className="p-3.5 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-800 dark:text-emerald-300 flex items-center justify-between text-xs font-medium animate-in fade-in slide-in-from-top duration-300 shadow-lg shadow-emerald-950/10 dark:shadow-emerald-950/40">
             <div className="flex items-center space-x-2">
@@ -177,59 +184,63 @@ export function Dashboard({ initialAuthStatus, initialDevices, initialMetrics, i
         )}
 
         {authStatus.isDemo && (
-          <div className="p-3 sm:p-4 rounded-2xl bg-gradient-to-r from-amber-500/10 via-amber-600/5 to-white dark:to-slate-900 border border-amber-500/30 flex items-center justify-between gap-3 shadow-sm">
-            <div className="flex items-center space-x-3 min-w-0">
-              <div className="p-2 rounded-xl bg-amber-500/20 text-amber-600 dark:text-amber-400 shrink-0">
-                <Sparkles className="w-5 h-5" />
-              </div>
-              <div>
-                <h2 className="text-sm font-semibold text-slate-900 dark:text-white">Running in Demo Sandbox Mode</h2>
-                <p className="hidden sm:block text-xs text-slate-600 dark:text-slate-400 mt-0.5">Displaying simulated metrics for sample wearable devices. Connect your Google account to fetch real-time data.</p>
-              </div>
+          <div className="px-3 py-2.5 sm:px-4 rounded-2xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2.5 min-w-0 text-xs sm:text-sm">
+              <Sparkles className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0" />
+              <p className="text-slate-700 dark:text-slate-200 truncate">
+                <span className="font-semibold">Demo mode</span>
+                <span className="hidden sm:inline text-slate-500 dark:text-slate-400"> · sample data from three wearables. Connect Google for your own.</span>
+              </p>
             </div>
-            <a href="/api/auth/login" className="shrink-0 px-3.5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-semibold shadow transition-all">
-              <span className="sm:hidden">Connect</span>
-              <span className="hidden sm:inline">Connect Google Account</span>
+            <a href="/api/auth/login" className="shrink-0 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-semibold shadow-sm transition-colors">
+              Connect
             </a>
           </div>
         )}
 
-        <DeviceList devices={devices} onSync={() => refresh("Devices synced and metrics refreshed.")} isSyncing={isRefreshing} isDemo={authStatus.isDemo} onTryDemo={toggleDemo} />
+        <TopTabs {...tabProps} />
+        {staleNotice}
 
-        <div className="hidden sm:flex items-center justify-between text-xs text-slate-500 dark:text-slate-400 pt-1">
-          <div className="flex items-center space-x-2">
-            <span>Telemetry Stream:</span>
-            <span className="inline-flex items-center space-x-1.5 font-medium text-emerald-700 dark:text-emerald-400 bg-emerald-500/10 px-2.5 py-0.5 rounded-md border border-emerald-500/20">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-              <span>
-                Unified Telemetry ({devices.length} {devices.length === 1 ? "source" : "sources"} reconciled)
-              </span>
-            </span>
+        {tab === "today" && (
+          <div key="today" className="space-y-4 sm:space-y-6 animate-in fade-in duration-300">
+            <TodayPlan
+              today={today}
+              history={history7Days}
+              baseline={baseline}
+              signals={metrics.signals}
+              goals={goals.data?.goals}
+              todayWorkouts={metrics.todayWorkouts}
+              userName={userName}
+              isLoading={isInitialLoading}
+              onAsk={ask}
+            />
+            <WellnessSignals signals={metrics.signals} onAsk={ask} />
+            <ReadinessScore today={today} history7Days={history7Days} baseline={baseline} />
+            <DailyBriefing today={today} history7Days={history7Days} baseline={baseline} userName={userName} onOpenChatWithPrompt={ask} />
           </div>
-          <span className="text-slate-400 dark:text-slate-500 font-mono text-[11px]">Google Health API {authStatus.apiVersion} REST</span>
-        </div>
+        )}
 
-        {showStaleNotice && <StaleDataNotice freshness={freshness} readingsFrom={readingsFrom} onRefresh={() => refresh()} />}
+        {tab === "training" && (
+          <div key="training" className="space-y-4 sm:space-y-6 animate-in fade-in duration-300">
+            <GoalsPanel data={goals.data} error={goals.error} onAsk={ask} onOpenChat={() => chat.current?.open()} onRemove={goals.archive} />
+            <TodayActivity workouts={metrics.todayWorkouts} today={today} />
+            <HabitStreaks today={today} history7Days={history7Days} />
+            <StepChart intradaySteps={metrics.intradaySteps} history={history7Days} stepGoal={today.stepsGoal} />
+          </div>
+        )}
 
-        <WellnessSignals signals={metrics.signals} onAsk={ask} />
-        <GoalsPanel data={goals.data} error={goals.error} onAsk={ask} onOpenChat={() => chat.current?.open()} onRemove={goals.archive} />
-        <ReadinessScore today={today} history7Days={history7Days} baseline={baseline} />
-        <DailyBriefing today={today} history7Days={history7Days} baseline={baseline} userName={userName} onOpenChatWithPrompt={(text) => chat.current?.ask(text)} />
-        <HabitStreaks today={today} history7Days={history7Days} />
-        <TodayActivity workouts={metrics.todayWorkouts} today={today} />
-
-        <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3 sm:gap-4">
-          {metricCards(today, readingsFrom).map((card) => (
-            <MetricCard key={card.title} {...card} isLoading={isInitialLoading} />
-          ))}
-        </div>
-
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6">
-          <StepChart intradaySteps={metrics.intradaySteps} history={history7Days} stepGoal={today.stepsGoal} />
-          <HeartRateChart intradayHeartRate={metrics.intradayHeartRate} history={history7Days} today={today} />
-        </div>
-
-        <SleepTimeline today={today} history={history7Days} />
+        {tab === "health" && (
+          <div key="health" className="space-y-4 sm:space-y-6 animate-in fade-in duration-300">
+            <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3 sm:gap-4">
+              {metricCards(today, readingsFrom).map((card) => (
+                <MetricCard key={card.title} {...card} isLoading={isInitialLoading} />
+              ))}
+            </div>
+            <SleepTimeline today={today} history={history7Days} />
+            <HeartRateChart intradayHeartRate={metrics.intradayHeartRate} history={history7Days} today={today} />
+            <DeviceList devices={devices} onSync={() => refresh("Devices synced and metrics refreshed.")} isSyncing={isRefreshing} isDemo={authStatus.isDemo} onTryDemo={toggleDemo} />
+          </div>
+        )}
       </main>
 
       <Footer apiVersion={authStatus.apiVersion} onOpenApiTester={() => setApiTesterOpen(true)} />
@@ -237,6 +248,7 @@ export function Dashboard({ initialAuthStatus, initialDevices, initialMetrics, i
       {apiTesterOpen && <ApiTester onClose={() => setApiTesterOpen(false)} apiVersion={authStatus.apiVersion} />}
       {shareOpen && <ShareCardModal onClose={() => setShareOpen(false)} today={today} userName={userName} />}
       <ChatAssistant ref={chat} llm={authStatus.llm} suggestions={goals.data?.suggestions} onGoalsChanged={goals.refresh} />
+      <BottomTabBar {...tabProps} onOpenCoach={() => chat.current?.open()} />
       <PwaInstallBanner />
     </div>
   );
