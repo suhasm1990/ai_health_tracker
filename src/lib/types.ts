@@ -120,6 +120,15 @@ export interface DataFreshness {
   fallbackDate: string | null;
 }
 
+export type VitalKey = "restingHeartRate" | "heartRateVariability" | "respiratoryRate" | "oxygenSaturation" | "skinTemperatureDeviationCelsius";
+
+export interface VitalStats {
+  mean: number;
+  sd: number;
+  /** Nights with a reading */
+  n: number;
+}
+
 /** Personal averages over the days before today, used as the reference for readiness and briefings. */
 export interface PersonalBaseline {
   /** Requested window length in days, e.g. 30. */
@@ -131,6 +140,10 @@ export interface PersonalBaseline {
   heartRateVariability: number | null;
   sleepMinutes: number | null;
   steps: number | null;
+  /** Mean daily training load (see lib/effort.ts) over the window. Absent on payloads cached before it existed. */
+  effortLoad?: number | null;
+  /** Spread of each vital over the window, for personal normal ranges (see lib/vitals.ts). */
+  vitals?: Partial<Record<VitalKey, VitalStats>>;
   /** "stored": long-term history from the database; "recent": derived from the 7-day window only. */
   source: "stored" | "recent";
 }

@@ -1,4 +1,5 @@
 import { GOALS } from "../constants";
+import { effortToday, trainingBalance, type EffortToday, type TrainingBalance } from "../effort";
 import { formatDistance } from "../goals/units";
 import type { DistanceUnit, GoalView, SessionType, SessionView } from "../goals/types";
 import { calculateReadiness } from "../readiness";
@@ -54,6 +55,10 @@ export interface DayPlan {
   summary: string;
   workout: PlannedWorkout;
   sleep: SleepPlan | null;
+  /** Today's effort so far against the target range for the day type. */
+  effort: EffortToday;
+  /** This week's load against the longer-term norm; null without enough stored history. */
+  balance: TrainingBalance | null;
   actions: PlanAction[];
   /** One-tap follow-ups for the chat coach. */
   prompts: { label: string; prompt: string }[];
@@ -206,7 +211,11 @@ const GENERAL_WORKOUTS: Record<DayMode, Omit<PlannedWorkout, "done" | "fromProgr
 export function buildDayPlan({ today, history, baseline, signals, goals = [], todayWorkouts = [], hour }: DayPlanInput): DayPlan {
   const readiness = calculateReadiness(today, history, baseline);
   const score = readiness.score;
-  const mode = modeFor(score, signals);
+  const balance = trainingBalance(history, today.date, baseline);
+  let mode = modeFor(score, signals);
+  // A big jump in weekly load is when injuries happen: hold back even on a great-feeling day.
+  const heldBack = mode === "push" && balance?.state === "overreaching";
+  if (heldBack) mode = "steady";
   const program = goals.find((g) => g.kind === "program");
   const session = program?.kind === "program" ? program.todaySession : null;
 
@@ -241,5 +250,8 @@ export function buildDayPlan({ today, history, baseline, signals, goals = [], to
     sleep && sleep.debtMinutes > 0 ? { label: "Fix my sleep debt", prompt: "How do I pay back my sleep debt this week?" } : { label: "Fuel for today", prompt: "What should I eat and drink today to support today's plan?" },
   ];
 
-  return { mode, readinessScore: score, headline: MODE_COPY[mode].headline, summary: MODE_COPY[mode].summary(score), workout, sleep, actions, prompts };
+  const summary = heldBack
+    ? `Readiness is ${score}/100, but your load this week is ${Math.round((balance!.ratio - 1) * 100)}% above your usual. Train as planned without adding extra; an easier stretch soon keeps injuries away.`
+    : MODE_COPY[mode].summary(score);
+  return { mode, readinessScore: score, headline: MODE_COPY[mode].headline, summary, workout, sleep, effort: effortToday(today, mode, workout.done), balance, actions, prompts };
 }

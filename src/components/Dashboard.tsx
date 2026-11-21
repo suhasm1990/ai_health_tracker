@@ -4,6 +4,10 @@ import { CheckCircle2, CloudOff, Flame, Footprints, Heart, Scale, Sparkles, Wind
 import dynamic from "next/dynamic";
 import { useRef, useState } from "react";
 import { TodayPlan } from "@/components/coach/TodayPlan";
+import { SleepHabitsPanel } from "@/components/health/SleepHabitsPanel";
+import { VitalsPanel } from "@/components/health/VitalsPanel";
+import { ScoreRow } from "@/components/today/ScoreRow";
+import { LoadPanel } from "@/components/training/LoadPanel";
 import { BottomTabBar, TopTabs } from "@/components/shell/AppNav";
 import { ChatAssistant, type ChatAssistantHandle } from "@/components/ChatAssistant";
 import { DailyBriefing } from "@/components/DailyBriefing";
@@ -22,6 +26,7 @@ import { TodayActivity } from "@/components/TodayActivity";
 import { WellnessSignals } from "@/components/WellnessSignals";
 import { useDashboardData, type DashboardInitial } from "@/hooks/useDashboardData";
 import { useGoals } from "@/hooks/useGoals";
+import { useDayPlan } from "@/hooks/useDayPlan";
 import { useTab } from "@/hooks/useTab";
 import type { DailyMetricSummary, DataFreshness } from "@/lib/types";
 import { formatShortDate, withUnit } from "@/lib/utils";
@@ -155,6 +160,7 @@ export function Dashboard({ initialAuthStatus, initialDevices, initialMetrics, i
   const readingsFrom = freshness.fallbackDate ? formatShortDate(freshness.fallbackDate) : null;
   const showStaleNotice = !authStatus.isDemo && !isInitialLoading && !freshness.syncedToday;
 
+  const { plan, hour } = useDayPlan({ today, history: history7Days, baseline, signals: metrics.signals, goals: goals.data?.goals, todayWorkouts: metrics.todayWorkouts });
   const tabProps = { tab, onChange: setTab };
   const staleNotice = showStaleNotice && <StaleDataNotice freshness={freshness} readingsFrom={readingsFrom} onRefresh={() => refresh()} />;
 
@@ -203,25 +209,19 @@ export function Dashboard({ initialAuthStatus, initialDevices, initialMetrics, i
 
         {tab === "today" && (
           <div key="today" className="space-y-4 sm:space-y-6 animate-in fade-in duration-300">
-            <TodayPlan
-              today={today}
-              history={history7Days}
-              baseline={baseline}
-              signals={metrics.signals}
-              goals={goals.data?.goals}
-              todayWorkouts={metrics.todayWorkouts}
-              userName={userName}
-              isLoading={isInitialLoading}
-              onAsk={ask}
-            />
+            <TodayPlan plan={plan} hour={hour} userName={userName} isLoading={isInitialLoading} onAsk={ask} />
+            <ScoreRow plan={plan} today={today} isLoading={isInitialLoading} onOpen={setTab} />
             <WellnessSignals signals={metrics.signals} onAsk={ask} />
-            <ReadinessScore today={today} history7Days={history7Days} baseline={baseline} />
+            <div id="readiness" className="scroll-mt-20">
+              <ReadinessScore today={today} history7Days={history7Days} baseline={baseline} />
+            </div>
             <DailyBriefing today={today} history7Days={history7Days} baseline={baseline} userName={userName} onOpenChatWithPrompt={ask} />
           </div>
         )}
 
         {tab === "training" && (
           <div key="training" className="space-y-4 sm:space-y-6 animate-in fade-in duration-300">
+            <LoadPanel plan={plan} history={history7Days} baseline={baseline} onAsk={ask} />
             <GoalsPanel data={goals.data} error={goals.error} onAsk={ask} onOpenChat={() => chat.current?.open()} onRemove={goals.archive} />
             <TodayActivity workouts={metrics.todayWorkouts} today={today} />
             <HabitStreaks today={today} history7Days={history7Days} />
@@ -231,12 +231,14 @@ export function Dashboard({ initialAuthStatus, initialDevices, initialMetrics, i
 
         {tab === "health" && (
           <div key="health" className="space-y-4 sm:space-y-6 animate-in fade-in duration-300">
+            <VitalsPanel today={today} history={history7Days} baseline={baseline} onAsk={ask} />
             <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3 sm:gap-4">
               {metricCards(today, readingsFrom).map((card) => (
                 <MetricCard key={card.title} {...card} isLoading={isInitialLoading} />
               ))}
             </div>
             <SleepTimeline today={today} history={history7Days} />
+            <SleepHabitsPanel history={history7Days} />
             <HeartRateChart intradayHeartRate={metrics.intradayHeartRate} history={history7Days} today={today} />
             <DeviceList devices={devices} onSync={() => refresh("Devices synced and metrics refreshed.")} isSyncing={isRefreshing} isDemo={authStatus.isDemo} onTryDemo={toggleDemo} />
           </div>

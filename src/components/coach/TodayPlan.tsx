@@ -1,19 +1,11 @@
 "use client";
 
 import { ArrowRight, BedDouble, Check, Dumbbell, Footprints, MessageCircle, Moon, Sparkles, Wand2, type LucideIcon } from "lucide-react";
-import { useMemo } from "react";
-import { useClientHour } from "@/hooks/useClientHour";
-import { buildDayPlan, type DayMode, type PlanAction } from "@/lib/coach/dayPlan";
-import type { GoalView } from "@/lib/goals/types";
-import type { DailyMetricSummary, PersonalBaseline, WellnessSignals, WorkoutSession } from "@/lib/types";
+import type { DayMode, DayPlan, PlanAction } from "@/lib/coach/dayPlan";
 
 interface TodayPlanProps {
-  today: DailyMetricSummary;
-  history: DailyMetricSummary[];
-  baseline: PersonalBaseline;
-  signals?: WellnessSignals;
-  goals?: GoalView[];
-  todayWorkouts?: WorkoutSession[];
+  plan: DayPlan;
+  hour: number | null;
   userName?: string;
   isLoading?: boolean;
   onAsk: (prompt: string) => void;
@@ -41,9 +33,7 @@ function greetingFor(hour: number | null, name?: string) {
 const todayLabel = () => new Date().toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" });
 
 /** The coach's plan for today, at the top of the dashboard. */
-export function TodayPlan({ today, history, baseline, signals, goals, todayWorkouts, userName, isLoading, onAsk }: TodayPlanProps) {
-  const hour = useClientHour();
-  const plan = useMemo(() => buildDayPlan({ today, history, baseline, signals, goals, todayWorkouts, hour }), [today, history, baseline, signals, goals, todayWorkouts, hour]);
+export function TodayPlan({ plan, hour, userName, isLoading, onAsk }: TodayPlanProps) {
   const style = MODE_STYLES[plan.mode];
   const { workout, sleep } = plan;
   const doneCount = plan.actions.filter((a) => a.done).length;

@@ -3,6 +3,8 @@ import { getAllHealthMetrics, getPairedDevices } from "../health";
 import { baselineLabel, hasData } from "../baseline";
 import { getDb } from "../db";
 import { buildDayPlan } from "../coach/dayPlan";
+import { sleepHabits } from "../sleepHabits";
+import { formatVital, vitalReadings } from "../vitals";
 import { loadGoals } from "../goals/service";
 import { GOAL_TOOLS, goalHandlers } from "../goals/tools";
 import { loadTrendData, type TrendDay } from "../history";
@@ -65,6 +67,12 @@ export const HEALTH_TOOLS: ToolDefinition[] = [
     name: "get_today_plan",
     description:
       "Get the coach's plan for today, the same one shown at the top of the dashboard: the day type (push / steady / recover / rest) from readiness and wellness signals, today's workout (from the training program when there is one, adjusted for recovery, with the original session and the reason when it was changed), tonight's target bedtime with the sleep-debt reasoning, and the day's checklist. Use for 'what should I do today', 'why did you change my workout', 'when should I go to bed', sleep debt, or planning the week.",
+    parameters: { type: "object", properties: {}, required: [] },
+  },
+  {
+    name: "get_body_status",
+    description:
+      "Get last night's vitals against the user's own normal range (resting heart rate, HRV, breathing rate, blood oxygen, skin temperature), today's effort score (0-100) with today's target range, this week's training load compared with their usual (easing off / maintaining / building / overreaching), and sleep rhythm (bed and wake time regularity, 7-night sleep debt). Use for 'is anything off?', vitals, effort, strain, training load, overtraining, sleep consistency or sleep debt.",
     parameters: { type: "object", properties: {}, required: [] },
   },
   {
@@ -136,6 +144,43 @@ function weekSummary(days: TrendDay[], workouts: { date: string; minutes: number
 const sleepRating = (score: number) => (score >= 85 ? "Excellent" : score >= 75 ? "Good" : score >= 60 ? "Fair" : "Poor");
 
 const handlers: Record<string, ToolHandler> = {
+  async get_body_status(args, ctx) {
+    const payload = await metricsFor(ctx);
+    const { today: t, history7Days, baseline } = payload;
+    const plan = buildDayPlan({ today: t, history: history7Days, baseline, signals: payload.signals, todayWorkouts: payload.todayWorkouts, hour: civilInZone(new Date(), ctx.clientTz).hour });
+    const vitals = vitalReadings(t, history7Days, baseline).map((r) => ({
+      vital: r.info.label,
+      lastNight: r.value === null ? null : `${formatVital(r.value, r.info)} ${r.info.unit}`,
+      normalRange: r.range ? `${formatVital(r.range.low, r.info)}–${formatVital(r.range.high, r.info)} ${r.info.unit}` : null,
+      status: r.status,
+      outsideNormalInConcerningDirection: r.flagged,
+      nightsInRange: r.nights,
+    }));
+    const sleep = sleepHabits(history7Days);
+    const flagged = vitals.filter((v) => v.outsideNormalInConcerningDirection).map((v) => v.vital);
+    return {
+      data: {
+        dataContext: dataContext(payload, ctx),
+        vitals,
+        effort: { ...plan.effort, dayType: plan.mode, scale: "0-100; rises quickly then flattens. Load = active zone minutes plus a little for steps over 3,000." },
+        trainingBalance: plan.balance ?? "unavailable: needs 14+ days of stored history",
+        sleepRhythm: {
+          consistencyScore: sleep.consistency,
+          typicalBedtime: sleep.typicalBedtime,
+          bedtimeVariationMinutes: sleep.bedtimeSpreadMin,
+          typicalWake: sleep.typicalWake,
+          wakeVariationMinutes: sleep.wakeSpreadMin,
+          sleepDebt7Nights: formatDuration(sleep.debtMinutes),
+        },
+      },
+      summary: {
+        name: "get_body_status",
+        label: "Checked Vitals & Load",
+        args,
+        resultSummary: `${flagged.length ? `Outside normal: ${flagged.join(", ")}` : "Vitals within normal"}; effort ${plan.effort.score} (target ${plan.effort.target.join("-")})${plan.balance ? `; load ${plan.balance.label.toLowerCase()}` : ""}`,
+      },
+    };
+  },
   async get_today_plan(args, ctx) {
     const [payload, goals] = await Promise.all([metricsFor(ctx), loadGoals(ctx).catch(() => null)]);
     const { hour } = civilInZone(new Date(), ctx.clientTz);
