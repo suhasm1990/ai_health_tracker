@@ -60,6 +60,34 @@ export async function runMockAdvisor(messages: ChatMessage[], ctx: ToolContext):
 
   const intents: Intent[] = [
     {
+      match: /vital|anything off|outside my normal|normal range|effort|strain|training load|overtrain|consisten/,
+      run: async () => {
+        const b = await call("get_body_status");
+        const off = b.vitals.filter((v: any) => v.outsideNormalInConcerningDirection);
+        const lines = [
+          off.length
+            ? `- **Outside your normal**: ${off.map((v: any) => `${v.vital} **${v.lastNight}** (normal ${v.normalRange})`).join("; ")}`
+            : "- **Vitals**: all within your normal range last night",
+          `- **Effort**: **${b.effort.score}/100**, target ${b.effort.target[0]}–${b.effort.target[1]}. ${b.effort.advice}`,
+          typeof b.trainingBalance === "string" ? "- **Training load**: needs 2 weeks of stored history to compare" : `- **Training load**: **${b.trainingBalance.label}** (${Math.round(b.trainingBalance.ratio * 100)}% of usual)`,
+          `- **Sleep rhythm**: consistency **${b.sleepRhythm.consistencyScore ?? "—"}**, ${b.sleepRhythm.sleepDebt7Nights} sleep debt over 7 nights`,
+        ];
+        return { toolsCalled, text: lines.join("\n") + (off.length ? "\n\nTake it easier today and see if it settles. If you feel unwell or it persists, check with a doctor." : "") };
+      },
+    },
+    {
+      match: /today'?s plan|this plan|plan my week|rest of (this|the) week|sleep debt|bedtime|change[ds]? (today'?s|my) workout|what should i do today/,
+      run: async () => {
+        const p = await call("get_today_plan");
+        const lines = [
+          `- **Workout**: ${p.workout.title}${p.workout.original ? ` (planned: ${p.workout.original.title})` : ""}. ${p.workout.reason}`,
+          p.sleep ? `- **Tonight**: in bed by **${p.sleep.bedtime}**. ${p.sleep.reason}` : "- **Tonight**: no recent sleep times recorded, so no bedtime target yet.",
+          p.upcomingSession ? `- **Next session**: ${p.upcomingSession.title} on ${p.upcomingSession.date}` : null,
+        ].filter(Boolean);
+        return { toolsCalled, text: `**${p.headline}** ${p.summary}\n\n${lines.join("\n")}` };
+      },
+    },
+    {
       match: /goal|badge|training|my plan|workout today|tracking|marathon|race/,
       run: async () => {
         const { goals, ideas } = await call("get_goals_progress");

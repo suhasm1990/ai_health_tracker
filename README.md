@@ -51,6 +51,11 @@ Other scripts: `npm run db:generate` (new migration after schema edits), `npm ru
 
 ## Features
 
+- **Coach's plan for today** at the top of the dashboard: a push, steady, recovery or rest day from readiness and wellness signals; today's training-plan session adjusted to recovery (hard sessions become easy runs on low days, and the card says why); a target bedtime from your usual wake time and recent sleep debt; and a checklist that ticks itself off as the watch syncs. The AI coach reads the same plan (`get_today_plan`), so it can explain any change.
+- **Effort and training load**: a 0–100 effort score per day from active zone minutes and steps, a target range for today set by the coach's day type, and this week's load against your usual (easing off, maintaining, building, overreaching; needs 14 days of stored history). On a high-readiness day the coach still holds back when you're overreaching.
+- **Vitals on personal ranges**: resting heart rate, HRV, breathing rate, blood oxygen and skin temperature each shown against your own normal range, with anything outside it flagged.
+- **Sleep rhythm**: bed and wake time regularity (0–100) and a 7-night sleep-debt chart.
+- **Tabbed layout**: Today, Training and Health, with a thumb-reach tab bar and a full-screen coach on phones.
 - **Readiness score (0–100)** from HRV, sleep, resting heart rate, and daily strain, with a written recommendation.
 - **Daily briefing and AI coach** with tool calling over live metrics (Gemini, NVIDIA NIM, OpenAI, or offline).
 - **Charts**: hourly steps and heart rate, 7-day trends, sleep stages with a clinical sleep quality index.
