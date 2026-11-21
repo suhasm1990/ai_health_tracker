@@ -60,6 +60,18 @@ export async function runMockAdvisor(messages: ChatMessage[], ctx: ToolContext):
 
   const intents: Intent[] = [
     {
+      match: /today'?s plan|this plan|plan my week|rest of (this|the) week|sleep debt|bedtime|change[ds]? (today'?s|my) workout|what should i do today/,
+      run: async () => {
+        const p = await call("get_today_plan");
+        const lines = [
+          `- **Workout**: ${p.workout.title}${p.workout.original ? ` (planned: ${p.workout.original.title})` : ""}. ${p.workout.reason}`,
+          p.sleep ? `- **Tonight**: in bed by **${p.sleep.bedtime}**. ${p.sleep.reason}` : "- **Tonight**: no recent sleep times recorded, so no bedtime target yet.",
+          p.upcomingSession ? `- **Next session**: ${p.upcomingSession.title} on ${p.upcomingSession.date}` : null,
+        ].filter(Boolean);
+        return { toolsCalled, text: `**${p.headline}** ${p.summary}\n\n${lines.join("\n")}` };
+      },
+    },
+    {
       match: /goal|badge|training|my plan|workout today|tracking|marathon|race/,
       run: async () => {
         const { goals, ideas } = await call("get_goals_progress");

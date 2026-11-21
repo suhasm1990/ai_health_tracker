@@ -2,6 +2,8 @@ import type { AuthState } from "../auth";
 import { getAllHealthMetrics, getPairedDevices } from "../health";
 import { baselineLabel, hasData } from "../baseline";
 import { getDb } from "../db";
+import { buildDayPlan } from "../coach/dayPlan";
+import { loadGoals } from "../goals/service";
 import { GOAL_TOOLS, goalHandlers } from "../goals/tools";
 import { loadTrendData, type TrendDay } from "../history";
 import { calculateReadiness } from "../readiness";
@@ -57,6 +59,12 @@ export const HEALTH_TOOLS: ToolDefinition[] = [
     name: "get_long_term_trends",
     description:
       "Get the last 4 weeks, week by week: average steps, sleep, resting heart rate, HRV and readiness score, plus workout count and minutes, with the change from the first to the last week, and wellness signals including the 3-month comparison. Use for overall health, how someone has been doing lately, or monthly trends.",
+    parameters: { type: "object", properties: {}, required: [] },
+  },
+  {
+    name: "get_today_plan",
+    description:
+      "Get the coach's plan for today, the same one shown at the top of the dashboard: the day type (push / steady / recover / rest) from readiness and wellness signals, today's workout (from the training program when there is one, adjusted for recovery, with the original session and the reason when it was changed), tonight's target bedtime with the sleep-debt reasoning, and the day's checklist. Use for 'what should I do today', 'why did you change my workout', 'when should I go to bed', sleep debt, or planning the week.",
     parameters: { type: "object", properties: {}, required: [] },
   },
   {
@@ -128,6 +136,34 @@ function weekSummary(days: TrendDay[], workouts: { date: string; minutes: number
 const sleepRating = (score: number) => (score >= 85 ? "Excellent" : score >= 75 ? "Good" : score >= 60 ? "Fair" : "Poor");
 
 const handlers: Record<string, ToolHandler> = {
+  async get_today_plan(args, ctx) {
+    const [payload, goals] = await Promise.all([metricsFor(ctx), loadGoals(ctx).catch(() => null)]);
+    const { hour } = civilInZone(new Date(), ctx.clientTz);
+    const plan = buildDayPlan({
+      today: payload.today,
+      history: payload.history7Days,
+      baseline: payload.baseline,
+      signals: payload.signals,
+      goals: goals?.goals,
+      todayWorkouts: payload.todayWorkouts,
+      hour,
+    });
+    const program = goals?.goals.find((g) => g.kind === "program");
+    return {
+      data: {
+        dataContext: dataContext(payload, ctx),
+        ...plan,
+        upcomingSession: program?.kind === "program" && program.nextSession ? { date: program.nextSession.date, title: program.nextSession.title, details: program.nextSession.details } : null,
+        rules: "Day type: push at readiness 85+, steady 65-84, recover below 65, rest when the illness pattern is present. Hard sessions (intervals, tempo, hills, race pace, long runs) become easy runs on recover days. Bedtime = usual wake time minus 8h, plus up to 45 min to repay a third of 3-night sleep debt, plus 15 min after a hard day, minus 15 min to fall asleep.",
+      },
+      summary: {
+        name: "get_today_plan",
+        label: "Built Today's Plan",
+        args,
+        resultSummary: `${plan.mode} day (readiness ${plan.readinessScore}): ${plan.workout.title}${plan.workout.original ? ` (changed from ${plan.workout.original.title})` : ""}${plan.sleep ? `, bed by ${plan.sleep.bedtime}` : ""}`,
+      },
+    };
+  },
   async get_today_health_summary(args, ctx) {
     const payload = await metricsFor(ctx);
     const { today: t, history7Days, baseline, todayWorkouts = [] } = payload;
