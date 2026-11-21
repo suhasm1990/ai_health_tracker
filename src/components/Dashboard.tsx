@@ -2,7 +2,8 @@
 
 import { CheckCircle2, CloudOff, Flame, Footprints, Heart, Scale, Sparkles, Wind, Zap } from "lucide-react";
 import dynamic from "next/dynamic";
-import { useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
+import { JournalCard, MemoryCard } from "@/components/coach/JournalCard";
 import { TodayPlan } from "@/components/coach/TodayPlan";
 import { SleepHabitsPanel } from "@/components/health/SleepHabitsPanel";
 import { VitalsPanel } from "@/components/health/VitalsPanel";
@@ -26,10 +27,11 @@ import { TodayActivity } from "@/components/TodayActivity";
 import { WellnessSignals } from "@/components/WellnessSignals";
 import { useDashboardData, type DashboardInitial } from "@/hooks/useDashboardData";
 import { useGoals } from "@/hooks/useGoals";
+import { useJournal } from "@/hooks/useJournal";
 import { useDayPlan } from "@/hooks/useDayPlan";
 import { useTab } from "@/hooks/useTab";
 import type { DailyMetricSummary, DataFreshness } from "@/lib/types";
-import { formatShortDate, withUnit } from "@/lib/utils";
+import { formatShortDate, shiftIso, withUnit } from "@/lib/utils";
 
 // Modals load on first open, keeping them out of the initial bundle.
 const ApiTester = dynamic(() => import("@/components/ApiTester").then((m) => m.ApiTester), { ssr: false });
@@ -148,10 +150,13 @@ export function Dashboard({ initialAuthStatus, initialDevices, initialMetrics, i
   const [shareOpen, setShareOpen] = useState(false);
   const [tab, setTab] = useTab();
   const chat = useRef<ChatAssistantHandle>(null);
-  const goals = useGoals(`${authStatus.isDemo}:${authStatus.user?.email ?? ""}`);
+  const scope = `${authStatus.isDemo}:${authStatus.user?.email ?? ""}`;
+  const goals = useGoals(scope);
+  const journal = useJournal(scope);
   const ask = (text: string) => chat.current?.ask(text);
   const refresh = (message?: string) => {
     void goals.refresh();
+    void journal.refresh();
     return refreshAll(message);
   };
 
@@ -160,7 +165,11 @@ export function Dashboard({ initialAuthStatus, initialDevices, initialMetrics, i
   const readingsFrom = freshness.fallbackDate ? formatShortDate(freshness.fallbackDate) : null;
   const showStaleNotice = !authStatus.isDemo && !isInitialLoading && !freshness.syncedToday;
 
-  const { plan, hour } = useDayPlan({ today, history: history7Days, baseline, signals: metrics.signals, goals: goals.data?.goals, todayWorkouts: metrics.todayWorkouts });
+  const loggedYesterday = useMemo(() => {
+    const yesterday = journal.data ? shiftIso(journal.data.today, -1) : null;
+    return journal.data?.recent.filter((e) => e.date === yesterday).map((e) => e.habit);
+  }, [journal.data]);
+  const { plan, hour } = useDayPlan({ today, history: history7Days, baseline, signals: metrics.signals, goals: goals.data?.goals, todayWorkouts: metrics.todayWorkouts, loggedYesterday });
   const tabProps = { tab, onChange: setTab };
   const staleNotice = showStaleNotice && <StaleDataNotice freshness={freshness} readingsFrom={readingsFrom} onRefresh={() => refresh()} />;
 
@@ -212,6 +221,10 @@ export function Dashboard({ initialAuthStatus, initialDevices, initialMetrics, i
             <TodayPlan plan={plan} hour={hour} userName={userName} isLoading={isInitialLoading} onAsk={ask} />
             <ScoreRow plan={plan} today={today} isLoading={isInitialLoading} onOpen={setTab} />
             <WellnessSignals signals={metrics.signals} onAsk={ask} />
+            <div className="grid gap-4 sm:gap-6 lg:grid-cols-[1.5fr_1fr]">
+              <JournalCard data={journal.data} error={journal.error} onToggle={journal.toggle} />
+              <MemoryCard memories={journal.data?.memories ?? []} persistent={journal.data?.persistent ?? false} onForget={journal.forget} onTell={() => chat.current?.draft("Remember that ")} />
+            </div>
             <div id="readiness" className="scroll-mt-20">
               <ReadinessScore today={today} history7Days={history7Days} baseline={baseline} />
             </div>
@@ -249,7 +262,15 @@ export function Dashboard({ initialAuthStatus, initialDevices, initialMetrics, i
 
       {apiTesterOpen && <ApiTester onClose={() => setApiTesterOpen(false)} apiVersion={authStatus.apiVersion} />}
       {shareOpen && <ShareCardModal onClose={() => setShareOpen(false)} today={today} userName={userName} />}
-      <ChatAssistant ref={chat} llm={authStatus.llm} suggestions={goals.data?.suggestions} onGoalsChanged={goals.refresh} />
+      <ChatAssistant
+        key={scope}
+        ref={chat}
+        llm={authStatus.llm}
+        suggestions={goals.data?.suggestions}
+        onGoalsChanged={goals.refresh}
+        onJournalChanged={journal.refresh}
+        storageKey={`aht-chat:${scope}`}
+      />
       <BottomTabBar {...tabProps} onOpenCoach={() => chat.current?.open()} />
       <PwaInstallBanner />
     </div>

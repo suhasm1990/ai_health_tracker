@@ -2,6 +2,7 @@ import { GOALS } from "../constants";
 import { effortToday, trainingBalance, type EffortToday, type TrainingBalance } from "../effort";
 import { formatDistance } from "../goals/units";
 import type { DistanceUnit, GoalView, SessionType, SessionView } from "../goals/types";
+import type { HabitKey } from "../journal/habits";
 import { calculateReadiness } from "../readiness";
 import type { DailyMetricSummary, PersonalBaseline, WellnessSignals, WorkoutSession } from "../types";
 import { formatDuration } from "../utils";
@@ -73,7 +74,21 @@ export interface DayPlanInput {
   todayWorkouts?: WorkoutSession[];
   /** Local hour 0-23, or null when unknown (server render). */
   hour: number | null;
+  /** Habits logged for yesterday, which shape this morning's recovery. */
+  loggedYesterday?: HabitKey[];
 }
+
+/** Logged habits that usually cost next-morning recovery, worth naming in the summary. */
+const RECOVERY_COSTS: Partial<Record<HabitKey, string>> = {
+  alcohol: "alcohol",
+  late_meal: "a late meal",
+  late_caffeine: "late caffeine",
+  stress: "a stressful day",
+  travel: "travel",
+  sick: "feeling run down",
+  late_workout: "a late workout",
+  screens_in_bed: "screens in bed",
+};
 
 const HARD_SESSIONS: SessionType[] = ["intervals", "tempo", "hills", "race_pace"];
 const SLEEP_LATENCY_MIN = 15;
@@ -208,7 +223,7 @@ const GENERAL_WORKOUTS: Record<DayMode, Omit<PlannedWorkout, "done" | "fromProgr
   rest: { title: "Rest and recover", detail: "No training today. Fluids, an early night, and a short walk only if you feel up to it.", intensity: "rest", reason: "Several overnight readings shifted together. Give your body room to bounce back." },
 };
 
-export function buildDayPlan({ today, history, baseline, signals, goals = [], todayWorkouts = [], hour }: DayPlanInput): DayPlan {
+export function buildDayPlan({ today, history, baseline, signals, goals = [], todayWorkouts = [], hour, loggedYesterday = [] }: DayPlanInput): DayPlan {
   const readiness = calculateReadiness(today, history, baseline);
   const score = readiness.score;
   const balance = trainingBalance(history, today.date, baseline);
@@ -250,8 +265,11 @@ export function buildDayPlan({ today, history, baseline, signals, goals = [], to
     sleep && sleep.debtMinutes > 0 ? { label: "Fix my sleep debt", prompt: "How do I pay back my sleep debt this week?" } : { label: "Fuel for today", prompt: "What should I eat and drink today to support today's plan?" },
   ];
 
-  const summary = heldBack
-    ? `Readiness is ${score}/100, but your load this week is ${Math.round((balance!.ratio - 1) * 100)}% above your usual. Train as planned without adding extra; an easier stretch soon keeps injuries away.`
-    : MODE_COPY[mode].summary(score);
+  const costs = loggedYesterday.map((h) => RECOVERY_COSTS[h]).filter((c): c is string => Boolean(c));
+  const journalNote = costs.length && mode !== "push" ? ` You logged ${costs.join(" and ")} yesterday, which often shows up in the next morning's numbers.` : "";
+  const summary =
+    (heldBack
+      ? `Readiness is ${score}/100, but your load this week is ${Math.round((balance!.ratio - 1) * 100)}% above your usual. Train as planned without adding extra; an easier stretch soon keeps injuries away.`
+      : MODE_COPY[mode].summary(score)) + journalNote;
   return { mode, readinessScore: score, headline: MODE_COPY[mode].headline, summary, workout, sleep, effort: effortToday(today, mode, workout.done), balance, actions, prompts };
 }

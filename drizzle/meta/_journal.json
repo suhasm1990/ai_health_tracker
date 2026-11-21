@@ -50,6 +50,13 @@
       "when": 1794254385763,
       "tag": "0006_add_goals",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1795251072845,
+      "tag": "0007_add_coach_memory_and_journal",
+      "breakpoints": true
     }
   ]
 }

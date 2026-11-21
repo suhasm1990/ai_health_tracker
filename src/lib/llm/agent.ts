@@ -4,6 +4,8 @@ import { geminiAdapter } from "./providers/gemini";
 import { runMockAdvisor } from "./providers/mock";
 import { openAiAdapter } from "./providers/openai";
 import { emergencyReply } from "./safety";
+import { coachStore } from "../coach/store";
+import type { CoachMemory } from "../journal/habits";
 import { todayIso } from "../utils";
 import type { ToolContext } from "./tools";
 
@@ -46,6 +48,11 @@ TOOL CALLING:
   - Vitals vs normal, "is anything off?", effort / strain, training load, overtraining, sleep consistency or debt -> 'get_body_status' (report ranges and labels exactly; a vital outside normal is a reason to take it easy and watch, not a diagnosis)
   - "What should I do today?", why a workout was changed, bedtime, sleep debt, planning the week -> 'get_today_plan' (the coach's daily plan shown on the dashboard; explain it using its 'reason' fields and 'rules', and never contradict it)
 
+MEMORY & JOURNAL:
+- 'WHAT YOU KNOW ABOUT THE USER' below lists facts saved in earlier conversations. Use them naturally (e.g. plan around a sore knee, suggest workouts at their preferred time) without reciting the list.
+- When the user shares something that will still matter next week (an injury, condition, schedule, preference, motivation, life event), call 'remember_fact' once and mention briefly that you'll remember it. When a saved fact is no longer true or they ask you to forget it, call 'forget_fact' with its id. If asked what you remember, list the facts.
+- When they mention a habit from today or recent days ("had 2 beers last night", "coffee at 4pm", "stressful day"), call 'log_habit' with the right date, then answer their question. 'get_journal_insights' tells what logged habits do to their next-morning recovery; present results as patterns in their own data, not proof of cause.
+
 GOALS & TRAINING PROGRAMS:
 You can create, change and stop goals. The dashboard then tracks them automatically from the wearable. Never claim a goal was created, changed or stopped unless the tool returned saved: true (or archived: true) in this turn.
 
@@ -84,6 +91,18 @@ const withToday = (prompt: string, ctx: ToolContext) => {
   return `${prompt}\n\nTODAY: ${weekday}, ${today}${ctx.clientTz ? ` (${ctx.clientTz})` : ""}. Resolve every relative date ("this month", "November", "next Sunday") from this.`;
 };
 
+async function loadMemories(ctx: ToolContext): Promise<CoachMemory[]> {
+  try {
+    return await coachStore(ctx.state, ctx.clientTz, ctx.guestId).memories();
+  } catch (err) {
+    console.error("Coach memory unavailable:", err);
+    return [];
+  }
+}
+
+const withMemories = (prompt: string, memories: CoachMemory[]) =>
+  `${prompt}\n\nWHAT YOU KNOW ABOUT THE USER (saved facts; id in brackets):\n${memories.length ? memories.map((m) => `- [${m.id}] (${m.category}) ${m.text}`).join("\n") : "- Nothing saved yet."}`;
+
 const MOCK_MODEL = "ai-health-tracker-agent";
 
 const toResponse = (run: AgentRun, provider: string, model: string): AgentResponse => ({
@@ -102,7 +121,7 @@ export async function runHealthAgent(messages: ChatMessage[], ctx: ToolContext, 
   if (!config.apiKey) return toResponse(await runMockAdvisor(messages, ctx), PROVIDER_LABELS.mock, MOCK_MODEL);
 
   try {
-    const prompt = withToday(SYSTEM_PROMPT, ctx);
+    const prompt = withMemories(withToday(SYSTEM_PROMPT, ctx), await loadMemories(ctx));
     const adapter = config.provider === "google" ? geminiAdapter(messages, config, prompt) : openAiAdapter(messages, config, prompt);
     return toResponse(await runToolLoop(adapter, ctx), PROVIDER_LABELS[config.provider] ?? "LLM", config.model);
   } catch (err) {

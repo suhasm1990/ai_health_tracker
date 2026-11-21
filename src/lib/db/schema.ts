@@ -82,6 +82,33 @@ export const goals = pgTable(
   (t) => [index("goals_user_status_idx").on(t.userId, t.status)]
 );
 
+/** Lasting facts the coach keeps about a user (an injury, a schedule, a preference), shown to them and editable. */
+export const coachMemories = pgTable(
+  "coach_memories",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    category: text("category").notNull(),
+    text: text("text").notNull(),
+    createdAt: tstz("created_at").notNull().defaultNow(),
+  },
+  (t) => [index("coach_memories_user_idx").on(t.userId)]
+);
+
+/** One logged habit per user, day and habit (e.g. alcohol on 2026-11-20), used to find what affects recovery. */
+export const journalEntries = pgTable(
+  "journal_entries",
+  {
+    userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    date: date("date", { mode: "string" }).notNull(),
+    habit: text("habit").notNull(),
+    amount: real("amount"),
+    note: text("note"),
+    createdAt: tstz("created_at").notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.userId, t.date, t.habit] })]
+);
+
 export type UserRow = typeof users.$inferSelect;
 export type NewUserRow = typeof users.$inferInsert;
 export type DailyMetricRow = typeof dailyMetrics.$inferSelect;

@@ -3,6 +3,8 @@ import { getAllHealthMetrics, getPairedDevices } from "../health";
 import { baselineLabel, hasData } from "../baseline";
 import { getDb } from "../db";
 import { buildDayPlan } from "../coach/dayPlan";
+import { coachStore } from "../coach/store";
+import { COACH_TOOLS, coachHandlers } from "../coach/tools";
 import { sleepHabits } from "../sleepHabits";
 import { formatVital, vitalReadings } from "../vitals";
 import { loadGoals } from "../goals/service";
@@ -82,6 +84,7 @@ export const HEALTH_TOOLS: ToolDefinition[] = [
     parameters: { type: "object", properties: {}, required: [] },
   },
   ...GOAL_TOOLS,
+  ...COACH_TOOLS,
 ];
 
 export interface ToolResult {
@@ -182,7 +185,12 @@ const handlers: Record<string, ToolHandler> = {
     };
   },
   async get_today_plan(args, ctx) {
-    const [payload, goals] = await Promise.all([metricsFor(ctx), loadGoals(ctx).catch(() => null)]);
+    const yesterday = shiftIso(ctx.clientDate ?? todayIso(ctx.clientTz), -1);
+    const [payload, goals, journal] = await Promise.all([
+      metricsFor(ctx),
+      loadGoals(ctx).catch(() => null),
+      coachStore(ctx.state, ctx.clientTz, ctx.guestId).journal(yesterday).catch(() => []),
+    ]);
     const { hour } = civilInZone(new Date(), ctx.clientTz);
     const plan = buildDayPlan({
       today: payload.today,
@@ -192,6 +200,7 @@ const handlers: Record<string, ToolHandler> = {
       goals: goals?.goals,
       todayWorkouts: payload.todayWorkouts,
       hour,
+      loggedYesterday: journal.filter((e) => e.date === yesterday).map((e) => e.habit),
     });
     const program = goals?.goals.find((g) => g.kind === "program");
     return {
@@ -464,7 +473,7 @@ const handlers: Record<string, ToolHandler> = {
 };
 
 export async function executeHealthTool(name: string, args: ToolArgs, ctx: ToolContext): Promise<ToolResult> {
-  const handler = handlers[name] ?? goalHandlers[name];
+  const handler = handlers[name] ?? goalHandlers[name] ?? coachHandlers[name];
   if (!handler) throw new Error(`Unknown health tool: ${name}`);
   return handler(args, ctx);
 }
