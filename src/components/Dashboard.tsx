@@ -176,7 +176,7 @@ export function Dashboard({ initialAuthStatus, initialDevices, initialMetrics, i
         onOpenShareCard={() => setShareOpen(true)}
       />
 
-      <main className="flex-1 max-w-7xl w-full mx-auto px-3 sm:px-6 lg:px-8 pt-4 sm:pt-6 pb-2 sm:pb-10 space-y-4 sm:space-y-6">
+      <main className="flex-1 max-w-7xl w-full mx-auto px-3 sm:px-6 lg:px-8 pt-4 sm:pt-6 pb-2 space-y-4 sm:space-y-6">
         {toast && (
           <div role="status" className="p-3.5 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-800 dark:text-emerald-300 flex items-center justify-between text-xs font-medium animate-in fade-in slide-in-from-top duration-300 shadow-lg shadow-emerald-950/10 dark:shadow-emerald-950/40">
             <div className="flex items-center space-x-2">
