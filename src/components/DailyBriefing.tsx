@@ -188,9 +188,9 @@ export function DailyBriefing({ today, history7Days, baseline, userName, onOpenC
             <span className="text-[11px] font-medium uppercase tracking-wider text-slate-400">Deep-Dive with AI Coach:</span>
             <span className="text-[10px] text-slate-500">1-click automated inquiry</span>
           </div>
-          <div className="flex gap-2 overflow-x-auto -mx-1 px-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden sm:grid sm:grid-cols-3 sm:overflow-visible sm:mx-0 sm:px-0">
+          <div className="flex flex-col gap-2 sm:grid sm:grid-cols-3">
             {synthesis.prompts.map(({ id, title, icon: Icon, color, prompt }) => (
-              <button key={id} onClick={() => onOpenChatWithPrompt(prompt)} className={`flex items-center justify-between p-2.5 rounded-xl border text-left text-xs transition-all duration-200 group shrink-0 min-w-[190px] sm:min-w-0 ${color}`}>
+              <button key={id} onClick={() => onOpenChatWithPrompt(prompt)} className={`flex items-center justify-between p-2.5 rounded-xl border text-left text-xs transition-all duration-200 group w-full min-w-0 ${color}`}>
                 <div className="flex items-center space-x-2 truncate">
                   <Icon className="w-4 h-4 shrink-0 transition-transform group-hover:scale-110" />
                   <span className="font-medium truncate text-slate-200 group-hover:text-white">{title}</span>
