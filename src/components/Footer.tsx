@@ -2,7 +2,7 @@ import Link from "next/link";
 
 export function Footer({ apiVersion, onOpenApiTester }: { apiVersion: string; onOpenApiTester: () => void }) {
   return (
-    <footer className="border-t border-slate-200 dark:border-slate-800 bg-white/50 dark:bg-slate-900/50 mt-4 pt-6 pb-[calc(5.5rem+env(safe-area-inset-bottom))] sm:mt-12 sm:py-8 transition-colors duration-200">
+    <footer className="border-t border-slate-200 dark:border-slate-800 bg-white/50 dark:bg-slate-900/50 mt-4 pt-6 pb-[calc(5.5rem+env(safe-area-inset-bottom))] sm:mt-6 sm:py-8 transition-colors duration-200">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-4">
         <div className="flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-slate-500 dark:text-slate-400">
           <div className="flex flex-col sm:flex-row sm:items-center space-y-1 sm:space-y-0 sm:space-x-2">
