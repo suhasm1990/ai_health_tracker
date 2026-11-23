@@ -1,5 +1,6 @@
 import { date, index, integer, jsonb, pgTable, primaryKey, real, text, timestamp } from "drizzle-orm/pg-core";
 import type { Goal } from "../goals/types";
+import type { SyncErrorKind } from "../syncErrors";
 import type { DailyMetricSummary, HealthMetricsPayload, WorkoutSession } from "../types";
 
 const tstz = (name: string) => timestamp(name, { withTimezone: true });
@@ -17,6 +18,13 @@ export const users = pgTable("users", {
   updatedAt: tstz("updated_at").notNull().defaultNow(),
   lastSyncedAt: tstz("last_synced_at"),
   backfilledAt: tstz("backfilled_at"),
+  /** When the nightly job last started on this user, whatever the outcome; tells a failing sync from a job that never ran. */
+  lastSyncAttemptAt: tstz("last_sync_attempt_at"),
+  /** Why the latest attempt failed; cleared when a sync succeeds. */
+  lastSyncError: text("last_sync_error").$type<SyncErrorKind>(),
+  lastSyncErrorAt: tstz("last_sync_error_at"),
+  /** Short error message for the admin, never a token. */
+  lastSyncErrorDetail: text("last_sync_error_detail"),
 });
 
 export const dailyMetrics = pgTable(

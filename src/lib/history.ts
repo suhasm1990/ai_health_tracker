@@ -1,12 +1,13 @@
 import { and, eq, gte, inArray, isNotNull, lt, sql } from "drizzle-orm";
 import { after } from "next/server";
-import { getValidAccessToken, refreshAccessToken, type AuthState } from "./auth";
+import { getValidAccessToken, refreshAccessTokenOrThrow, type AuthState } from "./auth";
 import { BASELINE_WINDOW_DAYS, MIN_STORED_BASELINE_DAYS, baselineFromDays, hasData } from "./baseline";
 import { dailyMetrics, getDb, liveSnapshots, users, workouts, type Db } from "./db";
 import { fetchDailyRange, type StoredWorkout } from "./health/metrics";
 import { calculateReadiness } from "./readiness";
 import { DRIFT_WINDOW_DAYS, wellnessSignals } from "./signals";
 import { decryptString, encryptString } from "./session";
+import { SyncError, classifySyncError, syncErrorDetail, type SyncErrorKind } from "./syncErrors";
 import type { DailyMetricSummary, HealthMetricsPayload } from "./types";
 import { shiftIso, todayIso } from "./utils";
 
@@ -162,9 +163,9 @@ async function backfill(db: Db, userId: string, token: string, timeZone?: string
     const [range, stored] = await Promise.all([fetchDailyRange(token, start, shiftIso(today, -1), timeZone), loadDays(db, userId, start, today)]);
     // A re-run backfill covers days already stored, so a failed fetch must not blank them; it is retried later.
     const { days: usable, failed } = usableDays(range.days, stored);
-    if (failed) throw new Error(`Backfill for ${userId} returned no data for stored days`);
+    if (failed) throw new SyncError("no_data", "Google Health returned no data for days that are already stored");
     await saveDays(db, userId, usable, range.workouts, stored);
-    await db.update(users).set({ backfilledAt: new Date(), lastSyncedAt: new Date() }).where(eq(users.id, userId));
+    await db.update(users).set({ backfilledAt: new Date(), ...syncSucceeded() }).where(eq(users.id, userId));
   } finally {
     backfilling.delete(userId);
   }
@@ -260,7 +261,8 @@ export function finishLiveLoad(
   return result;
 }
 
-type SyncOutcome = "synced" | "failed";
+/** Columns set on a successful sync: a fresh timestamp and no leftover error. */
+const syncSucceeded = () => ({ lastSyncedAt: new Date(), lastSyncError: null, lastSyncErrorAt: null, lastSyncErrorDetail: null });
 
 /**
  * Google read failures come back as empty results, so an empty day never replaces a stored one.
@@ -273,15 +275,16 @@ export function usableDays(fetched: DailyMetricSummary[], stored: DailyMetricSum
   return { days, failed };
 }
 
-async function syncUser(db: Db, user: typeof users.$inferSelect): Promise<SyncOutcome> {
+/** Syncs one user; throws on failure, with a SyncError or TokenRequestError saying why. */
+async function syncUser(db: Db, user: typeof users.$inferSelect): Promise<void> {
   const refreshToken = decryptString(user.refreshTokenEnc ?? undefined);
-  const token = refreshToken ? await refreshAccessToken(refreshToken) : null;
-  if (!token) return "failed";
+  if (!refreshToken) throw new SyncError("token_unreadable", "The stored refresh token could not be decrypted");
+  const token = await refreshAccessTokenOrThrow(refreshToken);
 
   const timeZone = user.timeZone ?? undefined;
   if (!user.backfilledAt) {
     await backfill(db, user.id, token, timeZone);
-    return "synced";
+    return;
   }
   // Cover any nights the cron missed, plus a few days for late device syncs.
   const missedDays = user.lastSyncedAt ? Math.ceil((Date.now() - user.lastSyncedAt.getTime()) / DAY_MS) : BACKFILL_DAYS;
@@ -293,35 +296,58 @@ async function syncUser(db: Db, user: typeof users.$inferSelect): Promise<SyncOu
     loadDays(db, user.id, shiftIso(start, -BASELINE_WINDOW_DAYS), today),
   ]);
   const { days, failed } = usableDays(range.days, context);
-  if (failed) return "failed";
+  if (failed) throw new SyncError("no_data", `Google Health returned no data for the last ${lookback} days, though some are already stored`);
   await saveDays(db, user.id, days, range.workouts, context);
   await Promise.all([
-    db.update(users).set({ lastSyncedAt: new Date() }).where(eq(users.id, user.id)),
+    db.update(users).set(syncSucceeded()).where(eq(users.id, user.id)),
     // Snapshots only matter for the current day.
     db.delete(liveSnapshots).where(and(eq(liveSnapshots.userId, user.id), lt(liveSnapshots.date, shiftIso(today, -1)))),
   ]);
-  return "synced";
+}
+
+/** Bookkeeping writes must never stop the sync itself, so their failures are only logged. */
+async function recordSync(db: Db, userId: string, set: Partial<typeof users.$inferInsert>) {
+  try {
+    await db.update(users).set(set).where(eq(users.id, userId));
+  } catch (err) {
+    console.error(`Recording sync state for user ${userId} failed:`, err);
+  }
+}
+
+export interface SyncSummary {
+  users: number;
+  synced: number;
+  failed: number;
+  /** Failures by reason, e.g. { token_revoked: 2 }. */
+  errors: Partial<Record<SyncErrorKind, number>>;
+  skipped: boolean;
 }
 
 /** Nightly job: refreshes every user with a stored refresh token and saves their recent days. */
-export async function syncAllUsers(): Promise<{ users: number; synced: number; failed: number; skipped: boolean }> {
+export async function syncAllUsers(): Promise<SyncSummary> {
   const db = getDb();
-  if (!db) return { users: 0, synced: 0, failed: 0, skipped: true };
+  if (!db) return { users: 0, synced: 0, failed: 0, errors: {}, skipped: true };
 
   const queue = await db.select().from(users).where(isNotNull(users.refreshTokenEnc));
   const total = queue.length;
   let synced = 0;
   let failed = 0;
+  const errors: SyncSummary["errors"] = {};
   const worker = async () => {
     for (let user = queue.shift(); user; user = queue.shift()) {
-      const outcome = await syncUser(db, user).catch((err): SyncOutcome => {
-        console.error(`Sync failed for user ${user!.id}:`, err);
-        return "failed";
-      });
-      if (outcome === "synced") synced++;
-      else failed++;
+      await recordSync(db, user.id, { lastSyncAttemptAt: new Date() });
+      try {
+        await syncUser(db, user);
+        synced++;
+      } catch (err) {
+        const kind = classifySyncError(err);
+        console.error(`Sync failed for user ${user.id} (${kind}):`, err);
+        failed++;
+        errors[kind] = (errors[kind] ?? 0) + 1;
+        await recordSync(db, user.id, { lastSyncError: kind, lastSyncErrorAt: new Date(), lastSyncErrorDetail: syncErrorDetail(err) });
+      }
     }
   };
   await Promise.all(Array.from({ length: SYNC_CONCURRENCY }, worker));
-  return { users: total, synced, failed, skipped: false };
+  return { users: total, synced, failed, errors, skipped: false };
 }

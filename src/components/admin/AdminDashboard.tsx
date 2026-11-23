@@ -18,7 +18,7 @@ import {
 } from "lucide-react";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { Panel } from "@/components/ui/Panel";
-import { hasSyncIssue, type AdminFlag, type AdminMetric, type AdminOverview, type AdminUserRow, type HealthStatus, type SyncStatus } from "@/lib/admin";
+import { hasSyncIssue, type AdminFlag, type AdminMetric, type AdminOverview, type AdminUserRow, type HealthStatus, type SyncProblem } from "@/lib/admin";
 import { formatRelativeTime, formatShortDate } from "@/lib/utils";
 
 export type AdminFilter = "all" | "attention" | "watch" | "sync" | "ok" | "other";
@@ -53,12 +53,51 @@ const HEALTH_BADGES: Record<HealthStatus, { label: string; className: string; ic
   unknown: { label: "No assessment", icon: Clock, className: "border-slate-300 bg-slate-100 text-slate-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300" },
 };
 
-/** What the admin should do about each sync state. */
-const SYNC_ISSUES: Partial<Record<SyncStatus, { label: string; action: string }>> = {
-  stale: { label: "Sync overdue", action: "The nightly sync has not succeeded in over a day. Their Google access may have been revoked." },
-  reconnect: { label: "Signed out", action: "No stored Google access, so nightly sync is off until they sign in again." },
-  pending: { label: "First sync pending", action: "Joined recently and the first import has not finished yet." },
-};
+const relative = (at: Date) => formatRelativeTime(at.toISOString()).toLowerCase();
+
+/** The reason sync is not healthy, with the recorded error underneath when there is one. */
+function SyncProblemLine({ problem }: { problem: SyncProblem }) {
+  return (
+    <li className="flex gap-2 text-sm text-slate-700 dark:text-slate-200">
+      <RefreshCw className="mt-0.5 h-4 w-4 shrink-0 text-orange-600 dark:text-orange-400" aria-hidden />
+      <span className="min-w-0">
+        <span className="font-medium">{problem.label}:</span> {problem.action}
+        {(problem.detail || problem.at) && (
+          <span className="mt-0.5 block text-xs text-slate-500 dark:text-slate-400">
+            {problem.at && <>{problem.detail ? "Failed" : "Last attempt"} {relative(problem.at)}</>}
+            {problem.detail && problem.at && " · "}
+            {problem.detail && <code className="break-words font-mono text-[11px]">{problem.detail}</code>}
+          </span>
+        )}
+      </span>
+    </li>
+  );
+}
+
+/** Problems with the nightly job or the app's own setup, which every user's sync status depends on. */
+function JobBanner({ overview }: { overview: AdminOverview }) {
+  const lines: string[] = [];
+  if (overview.appCredentialsRejected) {
+    lines.push("Google rejected the app's OAuth client on the last run, so every user's sync fails. Check GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET.");
+  }
+  if (overview.jobStale) {
+    const ran = overview.jobLastRanAt ?? overview.lastSyncAt;
+    lines.push(
+      `The nightly sync job ${ran ? `last ran ${relative(ran)}` : "has not run yet"}, so overdue syncs are a job outage rather than a problem with each user. Check the cron job in Vercel and that CRON_SECRET is set.`
+    );
+  }
+  if (!lines.length) return null;
+  return (
+    <section role="alert" className="flex gap-2.5 rounded-2xl border border-orange-500/30 bg-orange-500/10 p-3.5 text-sm text-orange-800 dark:text-orange-200 sm:p-4">
+      <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
+      <div className="space-y-1">
+        {lines.map((line) => (
+          <p key={line}>{line}</p>
+        ))}
+      </div>
+    </section>
+  );
+}
 
 const TILE_TONES = {
   rose: { dot: "bg-rose-500", value: "text-rose-600 dark:text-rose-400", ring: "hover:border-rose-400/60 dark:hover:border-rose-500/50" },
@@ -211,7 +250,7 @@ function Meta({ label, children, warn }: { label: string; children: React.ReactN
 
 function UserCard({ user }: { user: AdminUserRow }) {
   const badge = HEALTH_BADGES[user.healthStatus];
-  const syncIssue = SYNC_ISSUES[user.syncStatus];
+  const syncIssue = user.syncProblem;
   const accent =
     user.healthStatus === "attention" ? "before:bg-rose-500" : user.healthStatus === "watch" ? "before:bg-amber-500" : user.healthStatus === "ok" ? "before:bg-emerald-500" : "before:bg-slate-300 dark:before:bg-slate-700";
 
@@ -238,11 +277,15 @@ function UserCard({ user }: { user: AdminUserRow }) {
           {user.flags.map((flag) => (
             <FlagLine key={flag.message} flag={flag} />
           ))}
-          {(syncIssue || user.dataStopped) && (
-            <li className="flex gap-2 text-sm text-slate-700 dark:text-slate-200">
-              <RefreshCw className="mt-0.5 h-4 w-4 shrink-0 text-orange-600 dark:text-orange-400" aria-hidden />
-              <span className="min-w-0">{syncIssue ? `${syncIssue.label}: ${syncIssue.action}` : "Device stopped sending data, though sync is running. They may not be wearing it."}</span>
-            </li>
+          {syncIssue ? (
+            <SyncProblemLine problem={syncIssue} />
+          ) : (
+            user.dataStopped && (
+              <li className="flex gap-2 text-sm text-slate-700 dark:text-slate-200">
+                <RefreshCw className="mt-0.5 h-4 w-4 shrink-0 text-orange-600 dark:text-orange-400" aria-hidden />
+                <span className="min-w-0">Device stopped sending data, though sync is running. They may not be wearing it.</span>
+              </li>
+            )
           )}
           {user.note && <li className="pl-6 text-xs text-slate-500 dark:text-slate-400">{user.note}</li>}
         </ul>
@@ -316,10 +359,13 @@ export function AdminDashboard({ overview, filter }: { overview: AdminOverview; 
           <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Admin</h1>
           <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
             {total} {total === 1 ? "user" : "users"} · {overview.active} sent data in the last 2 days · last sync{" "}
-            {overview.lastSyncAt ? formatRelativeTime(overview.lastSyncAt.toISOString()).toLowerCase() : "never"}
+            {overview.lastSyncAt ? relative(overview.lastSyncAt) : "never"}
+            {overview.jobLastRanAt && <> · job last ran {relative(overview.jobLastRanAt)}</>}
           </p>
         </div>
       </header>
+
+      <JobBanner overview={overview} />
 
       <section aria-label="Summary" className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <SummaryTile label="Needs attention" value={overview.attention} total={total} tone="rose" filter="attention" active={filter === "attention"} />
