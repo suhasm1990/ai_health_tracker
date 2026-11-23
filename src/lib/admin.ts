@@ -3,6 +3,7 @@ import { BASELINE_WINDOW_DAYS, MIN_STORED_BASELINE_DAYS } from "./baseline";
 import { dailyMetrics, users, type Db } from "./db";
 import type { UserSession } from "./session";
 import { DRIFT_WINDOW_DAYS, wellnessSignals } from "./signals";
+import { NEEDS_SIGN_IN, isSyncErrorKind, type SyncErrorKind } from "./syncErrors";
 import { isPositive, meanOf, shiftIso, todayIso } from "./utils";
 
 export type HealthStatus = "attention" | "watch" | "ok" | "limited" | "unknown";
@@ -53,8 +54,26 @@ export interface AdminUserInput {
   displayName: string | null;
   timeZone: string | null;
   createdAt: Date;
+  /** Last time the user's row was written, which happens whenever they use the app signed in. */
+  updatedAt: Date;
   lastSyncedAt: Date | null;
   hasRefreshToken: boolean;
+  lastSyncAttemptAt: Date | null;
+  lastSyncError: SyncErrorKind | null;
+  lastSyncErrorAt: Date | null;
+  lastSyncErrorDetail: string | null;
+}
+
+/** Why sync is not healthy for a user, in words an admin can act on. */
+export interface SyncProblem {
+  label: string;
+  action: string;
+  /** The recorded error message, when there is one. */
+  detail: string | null;
+  /** When the failure was recorded, or the last attempt when nothing was recorded. */
+  at: Date | null;
+  /** "job" when the cause is the nightly job or the app's own setup rather than this user. */
+  scope: "user" | "job";
 }
 
 /**
@@ -89,6 +108,8 @@ export interface AdminMetrics {
 
 export interface AdminUserRow extends AdminUserInput {
   syncStatus: SyncStatus;
+  /** Set whenever syncStatus is not "ok". */
+  syncProblem: SyncProblem | null;
   lastDataDate: string | null;
   healthStatus: HealthStatus;
   flags: AdminFlag[];
@@ -116,8 +137,14 @@ export interface AdminOverview {
   syncIssues: number;
   /** Users with device data in the last two days. */
   active: number;
-  /** Newest successful sync across all users, a proxy for the nightly job running. */
+  /** Newest successful sync across all users. */
   lastSyncAt: Date | null;
+  /** Newest sync attempt across all users: when the nightly job last ran. */
+  jobLastRanAt: Date | null;
+  /** Users with stored access exist, yet the job has not run (or, before attempts were recorded, succeeded) within a day and a half. */
+  jobStale: boolean;
+  /** Google rejected the app's own OAuth client on the last run, which fails every user. */
+  appCredentialsRejected: boolean;
 }
 
 const adminEmails = () =>
@@ -138,10 +165,83 @@ const hasData = (d: AdminDay) => d.steps > 0 || d.sleepMinutes > 0 || d.restingH
 
 function syncStatusOf(user: AdminUserInput, now: number): SyncStatus {
   if (!user.hasRefreshToken) return "reconnect";
+  // Google already said the saved access is dead, so there is no point waiting for the sync to go overdue.
+  if (user.lastSyncError && NEEDS_SIGN_IN.has(user.lastSyncError)) return "reconnect";
   // A first sync that never finishes is overdue too, so it cannot stay "pending" forever.
   const overdue = now - (user.lastSyncedAt ?? user.createdAt).getTime() > STALE_SYNC_MS;
   if (overdue) return "stale";
   return user.lastSyncedAt ? "ok" : "pending";
+}
+
+const CRON_HINT = "Check the cron job in Vercel and that CRON_SECRET is set.";
+
+const ERROR_PROBLEMS: Record<SyncErrorKind, Pick<SyncProblem, "label" | "action" | "scope">> = {
+  token_revoked: {
+    label: "Google access revoked",
+    action: "Google rejected their saved access: they removed the app, changed their password, or the grant expired. They need to sign in again.",
+    scope: "user",
+  },
+  token_unreadable: {
+    label: "Saved access unreadable",
+    action: "Their stored Google token could not be decrypted, usually because SESSION_SECRET changed. They need to sign in again.",
+    scope: "user",
+  },
+  app_credentials: {
+    label: "App credentials rejected",
+    action: "Google rejected the app's own OAuth client, so every user's sync fails. Check GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET.",
+    scope: "job",
+  },
+  google_auth_error: {
+    label: "Google sign-in error",
+    action: "Google's token service failed or could not be reached. Usually temporary; the next nightly run retries.",
+    scope: "user",
+  },
+  no_data: {
+    label: "Google returned no data",
+    action: "Google Health sent nothing for days that already have data, so nothing was overwritten. Likely a Google outage or a permission they turned off.",
+    scope: "user",
+  },
+  error: {
+    label: "Sync error",
+    action: "The sync failed for this user. The detail below and the cron logs say where.",
+    scope: "user",
+  },
+};
+
+/** Explains a sync status that is not "ok", from the recorded error or, failing that, from when the job last tried. */
+function syncProblemOf(user: AdminUserInput, status: SyncStatus, now: number): SyncProblem | null {
+  if (status === "ok") return null;
+  if (!user.hasRefreshToken) {
+    return { label: "Signed out", action: "No stored Google access, so nightly sync is off until they sign in again.", detail: null, at: null, scope: "user" };
+  }
+  if (user.lastSyncError) {
+    const problem = ERROR_PROBLEMS[user.lastSyncError];
+    // Using the app signed in after the failure usually means they reconnected; only the next run can confirm it.
+    const seenSince = NEEDS_SIGN_IN.has(user.lastSyncError) && user.lastSyncErrorAt && user.updatedAt > user.lastSyncErrorAt;
+    return {
+      ...problem,
+      action: seenSince ? `${problem.action} They have used the app since, so they may already have; the next nightly sync will confirm.` : problem.action,
+      detail: user.lastSyncErrorDetail,
+      at: user.lastSyncErrorAt,
+    };
+  }
+  if (status === "pending") {
+    return { label: "First sync pending", action: "Joined recently and the first import has not finished yet.", detail: null, at: user.lastSyncAttemptAt, scope: "user" };
+  }
+  const attempt = user.lastSyncAttemptAt;
+  if (!attempt) {
+    return { label: "Sync overdue", action: `No sync attempt has been recorded for them, so the nightly job may not be running. ${CRON_HINT}`, detail: null, at: null, scope: "job" };
+  }
+  if (now - attempt.getTime() > STALE_SYNC_MS) {
+    return { label: "Nightly job not running", action: `The job has not tried to sync them in over a day. ${CRON_HINT}`, detail: null, at: attempt, scope: "job" };
+  }
+  return {
+    label: "Sync did not finish",
+    action: "The last run started on them but neither finished nor recorded an error, most likely because the job hit its time limit.",
+    detail: null,
+    at: attempt,
+    scope: "job",
+  };
 }
 
 /** The level reached on at least two days, so a single outlier never decides a flag. `worst` sorts the worst value first. */
@@ -333,9 +433,11 @@ export function assessUser(user: AdminUserInput, days: AdminDay[], now = Date.no
   const today = todayIso(user.timeZone ?? undefined);
   const withData = days.filter(hasData);
   const lastDataDate = withData.at(-1)?.date ?? null;
+  const syncStatus = syncStatusOf(user, now);
   const base = {
     ...user,
-    syncStatus: syncStatusOf(user, now),
+    syncStatus,
+    syncProblem: syncProblemOf(user, syncStatus, now),
     lastDataDate,
     flags: [],
     checked: [],
@@ -393,8 +495,13 @@ export async function loadAdminOverview(db: Db): Promise<AdminOverview> {
         displayName: users.displayName,
         timeZone: users.timeZone,
         createdAt: users.createdAt,
+        updatedAt: users.updatedAt,
         lastSyncedAt: users.lastSyncedAt,
         hasRefreshToken: sql<boolean>`${users.refreshTokenEnc} is not null`,
+        lastSyncAttemptAt: users.lastSyncAttemptAt,
+        lastSyncError: users.lastSyncError,
+        lastSyncErrorAt: users.lastSyncErrorAt,
+        lastSyncErrorDetail: users.lastSyncErrorDetail,
       })
       .from(users),
     db
@@ -420,11 +527,23 @@ export async function loadAdminOverview(db: Db): Promise<AdminOverview> {
   const byUser = new Map<string, AdminDay[]>();
   for (const day of dayRows) byUser.set(day.userId, [...(byUser.get(day.userId) ?? []), day]);
   const rows = userRows
+    // An unknown kind (say, written by a newer deploy) reads as a generic error rather than breaking the page.
+    .map((user) => ({ ...user, lastSyncError: user.lastSyncError === null || isSyncErrorKind(user.lastSyncError) ? user.lastSyncError : ("error" as const) }))
     .map((user) => assessUser(user, byUser.get(user.id) ?? []))
     .sort((a, b) => STATUS_ORDER[a.healthStatus] - STATUS_ORDER[b.healthStatus] || a.email.localeCompare(b.email));
 
   const count = (match: (u: AdminUserRow) => boolean) => rows.filter(match).length;
-  const syncTimes = rows.map((u) => u.lastSyncedAt?.getTime() ?? 0).filter(Boolean);
+  const newest = (pick: (u: AdminUserRow) => Date | null) => {
+    const times = rows.map((u) => pick(u)?.getTime() ?? 0).filter(Boolean);
+    return times.length ? new Date(Math.max(...times)) : null;
+  };
+  const lastSyncAt = newest((u) => u.lastSyncedAt);
+  const jobLastRanAt = newest((u) => u.lastSyncAttemptAt);
+  // Before attempts were recorded, the newest success stands in for the last run.
+  const lastRun = jobLastRanAt ?? lastSyncAt;
+  const now = Date.now();
+  const syncable = rows.filter((u) => u.hasRefreshToken);
+  const jobStale = syncable.length > 0 && (lastRun ? now - lastRun.getTime() > STALE_SYNC_MS : syncable.every((u) => now - u.createdAt.getTime() > STALE_SYNC_MS));
   const nowIso = todayIso();
   return {
     users: rows,
@@ -434,6 +553,9 @@ export async function loadAdminOverview(db: Db): Promise<AdminOverview> {
     notAssessed: count((u) => u.healthStatus === "limited" || u.healthStatus === "unknown"),
     syncIssues: count(hasSyncIssue),
     active: count((u) => u.lastDataDate !== null && daysBetween(u.lastDataDate, nowIso) <= ACTIVE_WITHIN_DAYS),
-    lastSyncAt: syncTimes.length ? new Date(Math.max(...syncTimes)) : null,
+    lastSyncAt,
+    jobLastRanAt,
+    jobStale,
+    appCredentialsRejected: rows.some((u) => u.lastSyncError === "app_credentials"),
   };
 }

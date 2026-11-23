@@ -3,6 +3,7 @@ import { getSession, updateSession, cookieOptions, type UserSession } from "./se
 import { cached } from "./cache";
 import { listFreeModels, PROVIDER_LABELS, resolveLlmConfig, selectedModelId } from "./llm/config";
 import { API_VERSION } from "./health/client";
+import { parseTokenError } from "./syncErrors";
 import type { AuthStatus, UserProfile } from "./types";
 
 export { AuthError } from "./errors";
@@ -75,7 +76,7 @@ async function requestToken(params: Record<string, string>): Promise<TokenRespon
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({ client_id: clientId, client_secret: clientSecret, ...params }),
   });
-  if (!res.ok) throw new Error(`Token request failed (${res.status}): ${await res.text()}`);
+  if (!res.ok) throw parseTokenError(res.status, await res.text());
   return res.json();
 }
 
@@ -99,7 +100,15 @@ export async function exchangeCodeForSession(code: string): Promise<UserSession>
 // Collapse concurrent refreshes of the same token into one network call.
 const refreshes = new Map<string, Promise<string | null>>();
 
-/** Exchanges a refresh token for an access token; also used by the nightly sync, where no session cookie exists. */
+/**
+ * Exchanges a refresh token for an access token for the nightly sync, where no session cookie
+ * exists. Throws a TokenRequestError so the sync can record why it failed (say, a revoked grant).
+ */
+export async function refreshAccessTokenOrThrow(refreshToken: string): Promise<string> {
+  return (await requestToken({ refresh_token: refreshToken, grant_type: "refresh_token" })).access_token;
+}
+
+/** Exchanges a refresh token for an access token and saves it to the session; null on failure. */
 export async function refreshAccessToken(refreshToken: string): Promise<string | null> {
   const pending = refreshes.get(refreshToken);
   if (pending) return pending;
