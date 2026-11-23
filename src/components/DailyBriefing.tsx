@@ -56,8 +56,8 @@ const noopSubscribe = () => () => {};
 /** Current hour on the client, null during server rendering so markup matches on hydration. */
 const useClientHour = () => useSyncExternalStore(noopSubscribe, () => new Date().getHours(), () => null);
 
-const BOLD = { strong: "text-white font-semibold" };
-const BOLD_ACCENT = { strong: "text-emerald-300 font-semibold" };
+const BOLD = { strong: "text-slate-900 dark:text-white font-semibold" };
+const BOLD_ACCENT = { strong: "text-emerald-600 dark:text-emerald-300 font-semibold" };
 
 export function DailyBriefing({ today, history7Days, baseline, userName, onOpenChatWithPrompt }: DailyBriefingProps) {
   const [isRegenerating, setIsRegenerating] = useState(false);
@@ -104,21 +104,21 @@ export function DailyBriefing({ today, history7Days, baseline, userName, onOpenC
         id: "sleep-opt",
         title: "Optimize Tonight's Sleep",
         icon: Moon,
-        color: "text-indigo-400 bg-indigo-500/10 border-indigo-500/20 hover:bg-indigo-500/20",
+        color: "text-indigo-600 dark:text-indigo-400 bg-indigo-500/10 border-indigo-500/20 hover:bg-indigo-500/20",
         prompt: `Based on my sleep data today (${formatDuration(sleepMins)}, score: ${today.sleepScore}) and resting HR (${withUnit(rhr, "bpm")}), give me a tailored 3-step evening wind-down routine to maximize deep sleep tonight.`,
       },
       {
         id: "workout-plan",
         title: "Plan Today's Movement",
         icon: Zap,
-        color: "text-amber-400 bg-amber-500/10 border-amber-500/20 hover:bg-amber-500/20",
+        color: "text-amber-600 dark:text-amber-400 bg-amber-500/10 border-amber-500/20 hover:bg-amber-500/20",
         prompt: `I have logged ${ctx.steps} steps so far today out of my ${today.stepsGoal.toLocaleString()} goal. What specific workout or walking routine should I do today given my current recovery score?`,
       },
       {
         id: "hr-analysis",
         title: "Analyze My Cardiac Recovery",
         icon: Heart,
-        color: "text-rose-400 bg-rose-500/10 border-rose-500/20 hover:bg-rose-500/20",
+        color: "text-rose-600 dark:text-rose-400 bg-rose-500/10 border-rose-500/20 hover:bg-rose-500/20",
         prompt: `Analyze my resting heart rate trend (${rhr ? `${rhr} bpm` : "recent readings"} vs ${label} average ${baselineRhr ? `${baselineRhr} bpm` : "baseline"}). What does this mean for my cardiovascular fitness and stress recovery?`,
       },
     ];
@@ -142,39 +142,39 @@ export function DailyBriefing({ today, history7Days, baseline, userName, onOpenC
   ].filter((line) => line.text);
 
   return (
-    <section className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-slate-900/90 via-slate-900/80 to-slate-950/90 dark:from-slate-900/95 dark:via-slate-950/90 dark:to-black border border-slate-700/50 dark:border-slate-800/80 p-4 sm:p-6 shadow-xl backdrop-blur-md transition-all duration-300 hover:border-slate-600/60">
+    <section className="relative overflow-hidden rounded-2xl bg-white dark:bg-gradient-to-br dark:from-slate-900/95 dark:via-slate-950/90 dark:to-black border border-slate-200 dark:border-slate-800/80 p-4 sm:p-6 shadow-sm dark:shadow-xl backdrop-blur-md transition-all duration-300 hover:border-slate-300 dark:hover:border-slate-600/60">
       <div className="absolute -top-24 -right-24 w-72 h-72 rounded-full bg-gradient-to-br from-teal-500/15 via-indigo-500/10 to-transparent blur-3xl pointer-events-none" />
       <div className="absolute -bottom-24 -left-24 w-72 h-72 rounded-full bg-gradient-to-tr from-emerald-500/10 via-cyan-500/10 to-transparent blur-3xl pointer-events-none" />
 
-      <div className="relative z-10 flex items-start sm:items-center justify-between gap-3 pb-3 border-b border-slate-800/70">
+      <div className="relative z-10 flex items-start sm:items-center justify-between gap-3 pb-3 border-b border-slate-200 dark:border-slate-800/70">
         <div className="flex items-center space-x-3">
           <div className="flex items-center justify-center w-8 h-8 rounded-xl bg-gradient-to-tr from-teal-500 to-emerald-400 text-slate-950 shadow-md shadow-teal-500/20">
             <Sparkles className="w-4 h-4 fill-slate-950" />
           </div>
           <div>
             <div className="flex items-center space-x-2">
-              <span className="text-sm font-semibold text-white tracking-wide">AI Daily Health Briefing</span>
-              <span className="hidden sm:inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
+              <span className="text-sm font-semibold text-slate-900 dark:text-white tracking-wide">AI Daily Health Briefing</span>
+              <span className="hidden sm:inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border border-emerald-500/30">
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 mr-1 animate-pulse" />
                 Live Telemetry Synthesis
               </span>
             </div>
-            <div className="flex items-center space-x-1.5 text-xs text-slate-400 mt-0.5">
+            <div className="flex items-center space-x-1.5 text-xs text-slate-500 dark:text-slate-400 mt-0.5">
               <GreetingIcon className="w-3.5 h-3.5 text-amber-400" />
               <span>{greeting.text}</span>
-              <span className="text-slate-600">•</span>
+              <span className="text-slate-300 dark:text-slate-600">•</span>
               <span>{greeting.label}</span>
             </div>
           </div>
         </div>
-        <button onClick={regenerate} disabled={isRegenerating} title="Refresh AI briefing synthesis" aria-label="Refresh briefing" className="shrink-0 inline-flex items-center sm:space-x-1.5 p-2 sm:px-2.5 sm:py-1 text-xs font-medium text-slate-400 hover:text-slate-200 bg-slate-800/60 hover:bg-slate-800 rounded-lg border border-slate-700/60 transition-colors">
+        <button onClick={regenerate} disabled={isRegenerating} title="Refresh AI briefing synthesis" aria-label="Refresh briefing" className="shrink-0 inline-flex items-center sm:space-x-1.5 p-2 sm:px-2.5 sm:py-1 text-xs font-medium text-slate-500 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 dark:text-slate-400 dark:hover:text-slate-200 dark:bg-slate-800/60 dark:hover:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700/60 transition-colors">
           <RefreshCw className={`w-3.5 h-3.5 sm:w-3 sm:h-3 ${isRegenerating ? "animate-spin text-teal-400" : ""}`} />
           <span className="hidden sm:inline">{isRegenerating ? "Synthesizing..." : "Refresh"}</span>
         </button>
       </div>
 
       <div className="relative z-10 mt-3 sm:mt-4 space-y-3">
-        <div className="text-xs sm:text-sm text-slate-200 leading-relaxed space-y-2">
+        <div className="text-xs sm:text-sm text-slate-700 dark:text-slate-200 leading-relaxed space-y-2">
           {lines.map((line, i) => (
             <p key={i} className="flex items-start gap-2">
               <span className={`inline-block w-1.5 h-1.5 rounded-full mt-2 shrink-0 ${line.dot}`} />
@@ -183,19 +183,19 @@ export function DailyBriefing({ today, history7Days, baseline, userName, onOpenC
           ))}
         </div>
 
-        <div className="pt-3 border-t border-slate-800/60">
+        <div className="pt-3 border-t border-slate-200 dark:border-slate-800/60">
           <div className="flex items-center justify-between mb-2">
-            <span className="text-[11px] font-medium uppercase tracking-wider text-slate-400">Deep-Dive with AI Coach:</span>
+            <span className="text-[11px] font-medium uppercase tracking-wider text-slate-500 dark:text-slate-400">Deep-Dive with AI Coach:</span>
             <span className="text-[10px] text-slate-500">1-click automated inquiry</span>
           </div>
-          <div className="flex gap-2 overflow-x-auto -mx-1 px-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden sm:grid sm:grid-cols-3 sm:overflow-visible sm:mx-0 sm:px-0">
+          <div className="flex flex-col gap-2 sm:grid sm:grid-cols-3">
             {synthesis.prompts.map(({ id, title, icon: Icon, color, prompt }) => (
-              <button key={id} onClick={() => onOpenChatWithPrompt(prompt)} className={`flex items-center justify-between p-2.5 rounded-xl border text-left text-xs transition-all duration-200 group shrink-0 min-w-[190px] sm:min-w-0 ${color}`}>
+              <button key={id} onClick={() => onOpenChatWithPrompt(prompt)} className={`flex items-center justify-between p-2.5 rounded-xl border text-left text-xs transition-all duration-200 group w-full min-w-0 ${color}`}>
                 <div className="flex items-center space-x-2 truncate">
                   <Icon className="w-4 h-4 shrink-0 transition-transform group-hover:scale-110" />
-                  <span className="font-medium truncate text-slate-200 group-hover:text-white">{title}</span>
+                  <span className="font-medium truncate text-slate-800 group-hover:text-slate-950 dark:text-slate-200 dark:group-hover:text-white">{title}</span>
                 </div>
-                <ChevronRight className="w-3.5 h-3.5 text-slate-400 group-hover:text-white transition-transform group-hover:translate-x-0.5 shrink-0 ml-1" />
+                <ChevronRight className="w-3.5 h-3.5 text-slate-400 group-hover:text-slate-700 dark:group-hover:text-white transition-transform group-hover:translate-x-0.5 shrink-0 ml-1" />
               </button>
             ))}
           </div>

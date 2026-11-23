@@ -56,5 +56,16 @@ export function useGoals(scope: string) {
     [refresh]
   );
 
-  return { data, error, isLoading: data === null && error === null, refresh, archive };
+  /** Marks a planned run as skipped (or undoes it), then reloads so the week re-balances. */
+  const setSkipped = useCallback(
+    async (goalId: string, date: string, skipped: boolean) => {
+      const res = await fetch(goalsUrl(), { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ goalId, date, skipped }) }).catch(() => null);
+      const body = res ? await res.json().catch(() => ({})) : {};
+      await refresh();
+      if (!res?.ok) throw new Error(body.error || "Could not update today's session");
+    },
+    [refresh]
+  );
+
+  return { data, error, isLoading: data === null && error === null, refresh, archive, setSkipped };
 }

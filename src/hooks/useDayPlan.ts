@@ -5,8 +5,11 @@ import { useClientHour } from "@/hooks/useClientHour";
 import { buildDayPlan, type DayPlanInput } from "@/lib/coach/dayPlan";
 
 /** The coach's plan for today, recomputed as data syncs and the hour rolls over. */
-export function useDayPlan({ today, history, baseline, signals, goals, todayWorkouts, loggedYesterday }: Omit<DayPlanInput, "hour">) {
+export function useDayPlan({ today, history, baseline, signals, goals, todayWorkouts, loggedYesterday, skippedToday }: Omit<DayPlanInput, "hour">) {
   const hour = useClientHour();
-  const plan = useMemo(() => buildDayPlan({ today, history, baseline, signals, goals, todayWorkouts, hour, loggedYesterday }), [today, history, baseline, signals, goals, todayWorkouts, hour, loggedYesterday]);
+  const plan = useMemo(
+    () => buildDayPlan({ today, history, baseline, signals, goals, todayWorkouts, hour, loggedYesterday, skippedToday }),
+    [today, history, baseline, signals, goals, todayWorkouts, hour, loggedYesterday, skippedToday]
+  );
   return { plan, hour };
 }

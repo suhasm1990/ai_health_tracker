@@ -29,6 +29,7 @@ import { useDashboardData, type DashboardInitial } from "@/hooks/useDashboardDat
 import { useGoals } from "@/hooks/useGoals";
 import { useJournal } from "@/hooks/useJournal";
 import { useDayPlan } from "@/hooks/useDayPlan";
+import { useSkipToday } from "@/hooks/useSkipToday";
 import { useTab } from "@/hooks/useTab";
 import type { DailyMetricSummary, DataFreshness } from "@/lib/types";
 import { formatShortDate, shiftIso, withUnit } from "@/lib/utils";
@@ -169,7 +170,8 @@ export function Dashboard({ initialAuthStatus, initialDevices, initialMetrics, i
     const yesterday = journal.data ? shiftIso(journal.data.today, -1) : null;
     return journal.data?.recent.filter((e) => e.date === yesterday).map((e) => e.habit);
   }, [journal.data]);
-  const { plan, hour } = useDayPlan({ today, history: history7Days, baseline, signals: metrics.signals, goals: goals.data?.goals, todayWorkouts: metrics.todayWorkouts, loggedYesterday });
+  const skip = useSkipToday({ date: goals.data?.today ?? today.date, goals: goals.data?.goals, saveProgramSkip: goals.setSkipped });
+  const { plan, hour } = useDayPlan({ today, history: history7Days, baseline, signals: metrics.signals, goals: goals.data?.goals, todayWorkouts: metrics.todayWorkouts, loggedYesterday, skippedToday: skip.skippedToday });
   const tabProps = { tab, onChange: setTab };
   const staleNotice = showStaleNotice && <StaleDataNotice freshness={freshness} readingsFrom={readingsFrom} onRefresh={() => refresh()} />;
 
@@ -185,7 +187,7 @@ export function Dashboard({ initialAuthStatus, initialDevices, initialMetrics, i
         onOpenShareCard={() => setShareOpen(true)}
       />
 
-      <main className="flex-1 max-w-7xl w-full mx-auto px-3 sm:px-6 lg:px-8 pt-4 sm:pt-6 pb-28 sm:pb-10 space-y-4 sm:space-y-6">
+      <main className="flex-1 max-w-7xl w-full mx-auto px-3 sm:px-6 lg:px-8 pt-4 sm:pt-6 pb-2 space-y-4 sm:space-y-6">
         {toast && (
           <div role="status" className="p-3.5 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-800 dark:text-emerald-300 flex items-center justify-between text-xs font-medium animate-in fade-in slide-in-from-top duration-300 shadow-lg shadow-emerald-950/10 dark:shadow-emerald-950/40">
             <div className="flex items-center space-x-2">
@@ -218,7 +220,7 @@ export function Dashboard({ initialAuthStatus, initialDevices, initialMetrics, i
 
         {tab === "today" && (
           <div key="today" className="space-y-4 sm:space-y-6 animate-in fade-in duration-300">
-            <TodayPlan plan={plan} hour={hour} userName={userName} isLoading={isInitialLoading} onAsk={ask} />
+            <TodayPlan plan={plan} hour={hour} userName={userName} isLoading={isInitialLoading} onAsk={ask} onSkip={skip.setSkipped} skipPending={skip.pending} skipError={skip.error} />
             <ScoreRow plan={plan} today={today} isLoading={isInitialLoading} onOpen={setTab} />
             <WellnessSignals signals={metrics.signals} onAsk={ask} />
             <div className="grid gap-4 sm:gap-6 lg:grid-cols-[1.5fr_1fr]">

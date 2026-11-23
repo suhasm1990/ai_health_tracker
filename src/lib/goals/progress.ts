@@ -65,9 +65,9 @@ function creditRuns(sessions: PlanSession[], runs: Map<string, RunDay>, counts: 
  * runs (down to "optional"); a missed run adds a little to them. Quality sessions and the
  * long run are never touched. Returns the new distance per session date, only where it changed.
  */
-function rebalance(sessions: PlanSession[], credits: Map<string, Credit>, bonus: Map<string, number>, today: string, unit: DistanceUnit) {
+function rebalance(sessions: PlanSession[], credits: Map<string, Credit>, bonus: Map<string, number>, today: string, unit: DistanceUnit, skipped: Set<string>) {
   const adjusted = new Map<string, { km: number; note: string }>();
-  const open = sessions.filter((s) => isRun(s) && s.date >= today && !credits.has(s.date) && FLEXIBLE.has(s.type));
+  const open = sessions.filter((s) => isRun(s) && s.date >= today && !credits.has(s.date) && !skipped.has(s.date) && FLEXIBLE.has(s.type));
   if (!open.length) return adjusted;
   let surplus = [...bonus.values()].reduce((a, b) => a + b, 0);
   let deficit = 0;
@@ -77,7 +77,7 @@ function rebalance(sessions: PlanSession[], credits: Map<string, Credit>, bonus:
     if (credit && !credit.untracked) {
       if (credit.km > s.distanceKm) surplus += credit.km - s.distanceKm;
       else if (s.date < today || credit.on !== s.date) deficit += s.distanceKm - credit.km;
-    } else if (!credit && s.date < today && s.title !== "Before plan start") deficit += s.distanceKm;
+    } else if (!credit && (s.date < today || skipped.has(s.date)) && s.title !== "Before plan start") deficit += s.distanceKm;
   }
   const net = deficit - surplus;
   const half = fromUnit(0.5, unit);
@@ -115,6 +115,22 @@ interface WeekContext {
   runs: Map<string, RunDay>;
   strengthDays: Set<string>;
   cross: Map<string, string>;
+  /** Days the user marked a planned run as not happening. */
+  skipped: Set<string>;
+}
+
+/** What to do about a run the user skipped: never cram it in, but say where it can still fit. */
+function skippedNote(s: PlanSession, sessions: PlanSession[], today: string, toppedUp: boolean): string {
+  if (s.type === "long") {
+    const spare = s.date >= today ? sessions.find((x) => x.date > today && !isRun(x)) : undefined;
+    return spare
+      ? `Skipped. If you feel fresh on ${weekdayName(spare.date)}, a long run then still counts for it. Otherwise let it go: don't tack it onto next week.`
+      : "Skipped. Let it go: don't tack the distance onto next week. The plan picks up as written.";
+  }
+  if (toppedUp) return "Skipped. The remaining easy runs this week carry a little extra; the rest is let go.";
+  return sessions.some((x) => x.date > today)
+    ? "Skipped. Let it go; a run on any other day this week still counts."
+    : "Skipped. Let it go: next week picks up as written.";
 }
 
 function weekView({ sessions, ...week }: PlanWeek, ctx: WeekContext): WeekView {
@@ -124,7 +140,7 @@ function weekView({ sessions, ...week }: PlanWeek, ctx: WeekContext): WeekView {
   const isFuture = week.startDate > today;
   const isCurrent = !isFuture && end >= today;
   const { credits, bonus } = isFuture ? { credits: new Map<string, Credit>(), bonus: new Map<string, number>() } : creditRuns(sessions, runs, counts);
-  const adjusted = isCurrent ? rebalance(sessions, credits, bonus, today, goal.unit) : new Map<string, { km: number; note: string }>();
+  const adjusted = isCurrent ? rebalance(sessions, credits, bonus, today, goal.unit, ctx.skipped) : new Map<string, { km: number; note: string }>();
   // One strength workout anywhere in the week ticks off the week's strength session.
   const strengthDone = sessions.some((s) => counts(s.date) && ctx.strengthDays.has(s.date));
 
@@ -146,7 +162,8 @@ function weekView({ sessions, ...week }: PlanWeek, ctx: WeekContext): WeekView {
     if (credit) {
       const done = credit.untracked || credit.km >= target * DONE_SHARE;
       status = done ? "done" : s.date === today && credit.on === today ? "today" : "partial";
-    } else if (change?.km === 0) status = "covered";
+    } else if (ctx.skipped.has(s.date) && s.date <= today) status = "skipped";
+    else if (change?.km === 0) status = "covered";
     else status = s.date > today ? "upcoming" : s.date === today ? "today" : "missed";
     const moved = credit && credit.on !== s.date ? credit.on : null;
     return {
@@ -155,7 +172,11 @@ function weekView({ sessions, ...week }: PlanWeek, ctx: WeekContext): WeekView {
       actualKm: credit?.km ?? 0,
       coveredOn: moved,
       adjustedKm: change && !credit ? change.km : null,
-      note: moved ? `Done ${moved < s.date ? "early" : "late"}, on ${weekdayName(moved)}.` : change && !credit ? change.note : null,
+      note: moved
+        ? `Done ${moved < s.date ? "early" : "late"}, on ${weekdayName(moved)}.`
+        : status === "skipped"
+          ? skippedNote(s, sessions, today, sessions.some((x) => (adjusted.get(x.date)?.km ?? 0) > x.distanceKm))
+          : change && !credit ? change.note : null,
     };
   });
 
@@ -183,7 +204,7 @@ function programNudge(view: Omit<ProgramView, "nudge" | "badges">, today: string
   const { week, sessions } = currentWeek;
   const weekLine = `${d(week.actualKm)} of ${d(week.plannedKm)} done this week`;
   const next = nextSession ? ` Next: ${formatLongDate(nextSession.date)}, ${d(targetKm(nextSession))} ${nextSession.title.toLowerCase()}.` : "";
-  const missedKm = sessions.filter((s) => s.status === "missed").reduce((sum, s) => sum + s.distanceKm, 0);
+  const missedKm = sessions.filter((s) => s.status === "missed" || s.status === "skipped").reduce((sum, s) => sum + s.distanceKm, 0);
 
   if (todaySession?.type === "race") return { tone: "go", headline: `Race day: ${plan.raceName}!`, detail: todaySession.details };
   if (daysToRace <= 6) {
@@ -199,6 +220,9 @@ function programNudge(view: Omit<ProgramView, "nudge" | "badges">, today: string
   if (todaySession?.status === "done") {
     const early = todaySession.coveredOn ? ` You already did it on ${weekdayName(todaySession.coveredOn)}, so today is free.` : "";
     return { tone: "done", headline: todaySession.coveredOn ? "Today's run is already done" : "Today's run is done. Nice work!", detail: `${early} ${weekLine}.${next}`.trim() };
+  }
+  if (todaySession?.status === "skipped") {
+    return { tone: "rest", headline: `Today's ${todaySession.title.toLowerCase()} is skipped`, detail: `${todaySession.note ?? ""} ${weekLine}.${next}`.trim() };
   }
   if (todaySession?.status === "covered") {
     return { tone: "done", headline: "You're ahead: today's run is optional", detail: `${todaySession.note} ${weekLine}.${next}` };
@@ -231,7 +255,7 @@ export function programView(goal: ProgramGoal, data: ActivityData): ProgramView 
   const { today } = data;
   const { plan } = goal;
   const runs = runsByDate(data);
-  const ctx: WeekContext = { goal, today, runs, strengthDays: new Set(data.workouts.filter((w) => w.kind === "strength").map((w) => w.date)), cross: crossTrainingByDate(data) };
+  const ctx: WeekContext = { goal, today, runs, strengthDays: new Set(data.workouts.filter((w) => w.kind === "strength").map((w) => w.date)), cross: crossTrainingByDate(data), skipped: new Set(goal.skipped ?? []) };
   const weeks = plan.weeks.map((w) => weekView(w, ctx));
 
   const currentIndex = weeks.findIndex((w) => w.state === "current");
