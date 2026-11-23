@@ -25,6 +25,10 @@ export interface PlannedWorkout {
   /** Why the workout looks the way it does, in plain words. */
   reason: string;
   done: boolean;
+  /** The user said today's workout is not happening. */
+  skipped: boolean;
+  /** Still open, so the user can mark it skipped. */
+  canSkip: boolean;
   /** Comes from the user's training program rather than a general suggestion. */
   fromProgram: boolean;
 }
@@ -46,6 +50,8 @@ export interface PlanAction {
   label: string;
   detail: string;
   done: boolean;
+  /** Settled without being done: a skipped workout. */
+  skipped?: boolean;
 }
 
 export interface DayPlan {
@@ -73,10 +79,16 @@ export interface DayPlanInput {
   todayWorkouts?: WorkoutSession[];
   /** Local hour 0-23, or null when unknown (server render). */
   hour: number | null;
+  /** The user skipped today's suggested workout (no training program; a program records skips on the session). */
+  skippedToday?: boolean;
 }
 
 const HARD_SESSIONS: SessionType[] = ["intervals", "tempo", "hills", "race_pace"];
 const SLEEP_LATENCY_MIN = 15;
+/** From this hour an unstarted workout gets a nudge to either go now or let it go. */
+const EVENING_HOUR = 19;
+/** From this hour an unfinished session costs more sleep than it builds fitness. */
+const LATE_HOUR = 21;
 
 const MODE_COPY: Record<DayMode, { headline: string; summary: (score: number) => string }> = {
   push: { headline: "You're primed. Make today count.", summary: (s) => `Readiness is ${s}/100: recovery, sleep and resting heart rate all line up. This is a day to train hard.` },
@@ -162,10 +174,13 @@ function adaptSession(session: SessionView, mode: DayMode, unit: DistanceUnit, s
   const km = session.adjustedKm ?? session.distanceKm;
   const original = { title: session.title, detail: session.details };
   const done = session.status === "done" || session.status === "partial";
-  const base = { fromProgram: true, done };
+  const base = { fromProgram: true, done, skipped: false, canSkip: false };
   const isHard = HARD_SESSIONS.includes(session.type);
   const isLong = session.type === "long";
 
+  if (session.status === "skipped") {
+    return { ...base, skipped: true, title: `${session.title} skipped`, detail: "Today is a rest day now. Nothing to make up: one missed run costs almost no fitness.", intensity: "rest", original: null, reason: session.note ?? "Let it go and pick the plan up at the next run." };
+  }
   if (session.type === "rest" || session.status === "covered" || km === 0) {
     const covered = session.status === "covered";
     return { ...base, title: covered ? "Rest: this week's distance is in" : session.title, detail: session.details, intensity: session.type === "strength" ? "moderate" : "rest", original: null, reason: covered ? "You already ran this week's planned distance, so today is optional." : "Rest days are when the training actually sinks in." };
@@ -201,14 +216,14 @@ function adaptSession(session: SessionView, mode: DayMode, unit: DistanceUnit, s
   return { ...base, title: session.title, detail: session.details, intensity: isHard ? "hard" : isLong ? "moderate" : "easy", original: null, reason };
 }
 
-const GENERAL_WORKOUTS: Record<DayMode, Omit<PlannedWorkout, "done" | "fromProgram" | "original">> = {
+const GENERAL_WORKOUTS: Record<DayMode, Omit<PlannedWorkout, "done" | "skipped" | "canSkip" | "fromProgram" | "original">> = {
   push: { title: "Quality session, 30–40 min", detail: "Warm up 10 min, then 4 × 4 min hard with 3 min easy between. Or go for a strength PR.", intensity: "hard", reason: "You're well recovered, the best time to push." },
   steady: { title: "Zone 2 cardio, 30–45 min", detail: "Steady effort where you can still talk in full sentences, or a regular strength session.", intensity: "moderate", reason: "Recovery is around your usual: steady aerobic work builds fitness without digging a hole." },
   recover: { title: "Easy walk + mobility, 30 min", detail: "20-minute walk at an easy pace, then 10 minutes of stretching or mobility.", intensity: "easy", reason: "Light movement speeds recovery more than sitting still or training hard." },
   rest: { title: "Rest and recover", detail: "No training today. Fluids, an early night, and a short walk only if you feel up to it.", intensity: "rest", reason: "Several overnight readings shifted together. Give your body room to bounce back." },
 };
 
-export function buildDayPlan({ today, history, baseline, signals, goals = [], todayWorkouts = [], hour }: DayPlanInput): DayPlan {
+export function buildDayPlan({ today, history, baseline, signals, goals = [], todayWorkouts = [], hour, skippedToday = false }: DayPlanInput): DayPlan {
   const readiness = calculateReadiness(today, history, baseline);
   const score = readiness.score;
   const balance = trainingBalance(history, today.date, baseline);
@@ -224,32 +239,58 @@ export function buildDayPlan({ today, history, baseline, signals, goals = [], to
     workout = adaptSession(session, mode, program.goal.unit, score);
   } else {
     const logged = todayWorkouts.length > 0;
+    const none = { original: null, fromProgram: false, skipped: false, canSkip: false };
     workout = logged
-      ? { title: `${todayWorkouts[0].activityType} logged`, detail: `${humanMinutes(todayWorkouts[0].durationMinutes)} recorded today.`, intensity: "moderate", reason: "Already done. Anything more today is a bonus, not a requirement.", done: true, original: null, fromProgram: false }
-      : { ...GENERAL_WORKOUTS[mode], done: false, original: null, fromProgram: false };
+      ? { ...none, title: `${todayWorkouts[0].activityType} logged`, detail: `${humanMinutes(todayWorkouts[0].durationMinutes)} recorded today.`, intensity: "moderate", reason: "Already done. Anything more today is a bonus, not a requirement.", done: true }
+      : skippedToday
+        ? { ...none, skipped: true, title: "Workout skipped", detail: "Today is a rest day now. Nothing to make up.", intensity: "rest", reason: "One missed session costs almost no fitness. Pick it back up tomorrow.", done: false }
+        : { ...none, ...GENERAL_WORKOUTS[mode], done: false };
   }
+  // Anything still open can be let go; a rest day has nothing to skip.
+  if (!workout.done && !workout.skipped && workout.intensity !== "rest") workout = { ...workout, canSkip: true };
 
-  // Late in the day an unfinished session costs more sleep than it builds fitness.
-  if (!workout.done && hour !== null && hour >= 21 && workout.intensity !== "rest") {
+  // An unstarted workout in the evening: say plainly that letting it go is fine, and late at night, that it should go.
+  const evening = workout.canSkip && hour !== null && hour >= EVENING_HOUR;
+  if (evening && hour >= LATE_HOUR) {
     workout = { ...workout, reason: `${workout.reason} It's getting late: if you haven't started, skip it tonight so it doesn't cut into sleep.` };
+  } else if (evening) {
+    workout = { ...workout, reason: `${workout.reason} It's evening: if it isn't happening today, mark it skipped${workout.fromProgram ? " and the coach will re-balance the week" : ""}.` };
   }
 
   const sleep = planSleep(today, history, workout.intensity === "hard");
   const stepsLeft = Math.max(0, today.stepsGoal - today.steps);
   const actions: PlanAction[] = [
-    { id: "workout", label: workout.intensity === "rest" ? "Rest day" : workout.title, detail: workout.done ? "Done" : workout.intensity === "rest" ? "Recovery counts as training" : "From your watch once it syncs", done: workout.done || workout.intensity === "rest" },
+    workout.skipped
+      ? { id: "workout", label: workout.title, detail: "Rest day instead", done: false, skipped: true }
+      : { id: "workout", label: workout.intensity === "rest" ? "Rest day" : workout.title, detail: workout.done ? "Done" : workout.intensity === "rest" ? "Recovery counts as training" : evening ? "Not logged yet" : "From your watch once it syncs", done: workout.done || workout.intensity === "rest" },
     { id: "move", label: `${today.stepsGoal.toLocaleString()} steps`, detail: stepsLeft === 0 ? `${today.steps.toLocaleString()} today` : `${stepsLeft.toLocaleString()} to go`, done: stepsLeft === 0 },
   ];
   if (sleep) actions.push({ id: "sleep", label: `In bed by ${sleep.bedtime}`, detail: `For ${humanMinutes(sleep.targetMinutes)} of sleep`, done: false });
 
   const prompts = [
-    workout.original
+    workout.skipped
+      ? { label: "Adjust my week", prompt: `I skipped today's ${workout.title.replace(/ skipped$/, "").toLowerCase()}. How should I handle the rest of my week?` }
+      : workout.original
       ? { label: "Why the change?", prompt: "Why did you change today's workout from my training plan?" }
       : { label: "Why this plan?", prompt: "Explain today's plan: why this workout and this bedtime?" },
     { label: "Plan my week", prompt: "Looking at my recovery and goals, how should I train for the rest of this week?" },
     sleep && sleep.debtMinutes > 0 ? { label: "Fix my sleep debt", prompt: "How do I pay back my sleep debt this week?" } : { label: "Fuel for today", prompt: "What should I eat and drink today to support today's plan?" },
   ];
 
+  if (workout.skipped) {
+    return {
+      mode,
+      readinessScore: score,
+      headline: "Rest day it is. Bank the recovery.",
+      summary: `Today's workout is off the list, and that's fine. Readiness is ${score}/100, so an early night sets you up well for the next session.`,
+      workout,
+      sleep,
+      effort: effortToday(today, "rest", false),
+      balance,
+      actions,
+      prompts,
+    };
+  }
   const summary = heldBack
     ? `Readiness is ${score}/100, but your load this week is ${Math.round((balance!.ratio - 1) * 100)}% above your usual. Train as planned without adding extra; an easier stretch soon keeps injuries away.`
     : MODE_COPY[mode].summary(score);

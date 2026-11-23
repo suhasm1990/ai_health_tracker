@@ -100,6 +100,8 @@ export interface ProgramGoal extends GoalBase {
   plan: TrainingPlan;
   /** Automatic re-levelling the plan has applied, newest last. */
   adaptations?: PlanAdaptation[];
+  /** Days (YYYY-MM-DD) the user said a planned run is not happening, newest last. */
+  skipped?: string[];
 }
 
 export interface ActivityGoal extends GoalBase {
@@ -128,8 +130,8 @@ export interface Badge {
   progress: number | null;
 }
 
-/** "covered": the week's distance is already in, so this run became optional. */
-export type SessionStatus = "done" | "partial" | "missed" | "today" | "upcoming" | "covered" | "rest" | "before_start";
+/** "covered": the week's distance is already in, so this run became optional. "skipped": the user said it is not happening. */
+export type SessionStatus = "done" | "partial" | "missed" | "skipped" | "today" | "upcoming" | "covered" | "rest" | "before_start";
 
 export interface SessionView extends PlanSession {
   status: SessionStatus;
@@ -222,4 +224,4 @@ export interface GoalsPayload {
 }
 
 /** Chat tools whose success changes what the goals panel shows; the client refetches after them. */
-export const GOAL_MUTATION_TOOLS: readonly string[] = ["create_training_plan", "update_training_plan", "create_activity_goal", "update_activity_goal", "archive_goal"];
+export const GOAL_MUTATION_TOOLS: readonly string[] = ["create_training_plan", "update_training_plan", "create_activity_goal", "update_activity_goal", "archive_goal", "skip_session"];

@@ -3,7 +3,7 @@ import type { ToolDefinition } from "../llm/types";
 import { isValidIsoDate, shiftIso, todayIso } from "../utils";
 import { PlanError, buildPlan } from "./plan";
 import { activityView, programView } from "./progress";
-import { defaultUnit, loadActivity, loadGoals } from "./service";
+import { defaultUnit, loadActivity, loadGoals, setSessionSkipped } from "./service";
 import { MAX_ACTIVE_GOALS, goalStore, newGoalId } from "./store";
 import { replan, type PlanChanges } from "./replan";
 import type { ActivityGoal, DistanceUnit, Goal, GoalMetric, GoalView, PlanInput, ProgramGoal, RaceDistance } from "./types";
@@ -99,6 +99,20 @@ export const GOAL_TOOLS: ToolDefinition[] = [
         endDate: { type: "string", description: "New last day, YYYY-MM-DD" },
         title: { type: "string", description: "New name" },
         unit: { type: "string", description: "New distance unit", enum: ["mi", "km"] },
+      },
+      required: [],
+    },
+  },
+  {
+    name: "skip_session",
+    description:
+      "Mark a planned run in the user's training program as skipped when they say they did not or will not do it ('I didn't run today', 'skipping my long run', 'no run tonight'). The dashboard stops asking for it, and the rest of the week re-balances: remaining easy runs may carry a little extra, a skipped long run is let go rather than crammed into next week. Pass skipped=false to undo. Only today or earlier this week.",
+    parameters: {
+      type: "object",
+      properties: {
+        goalId: { type: "string", description: "The program's id from get_goals_progress. May be omitted when the user has exactly one training program" },
+        date: { type: "string", description: "Day of the planned run, YYYY-MM-DD. Omit for today" },
+        skipped: { type: "boolean", description: "false to take back an earlier skip. Default true" },
       },
       required: [],
     },
@@ -535,6 +549,30 @@ export const goalHandlers: Record<string, (args: Args, ctx: ToolContext) => Prom
     await store.update(goal);
     const view = activityView(goal, await loadActivity(ctx, goal.startDate));
     return { data: { saved: true, changed, ...describe(view) }, summary: { name, label, args, resultSummary: `${goal.title}: ${changed.join("; ")}` } };
+  },
+
+  async skip_session(args, ctx) {
+    const name = "skip_session";
+    const label = args.skipped === false ? "Restored Planned Run" : "Skipped Planned Run";
+    const today = ctx.clientDate ?? todayIso(ctx.clientTz);
+    const date = str(args.date) ?? today;
+    if (!isValidIsoDate(date)) return failed(name, label, args, "date must be YYYY-MM-DD.");
+    const skipped = args.skipped !== false && args.skipped !== "false";
+    const result = await setSessionSkipped(ctx, str(args.goalId), date, skipped);
+    if (!result.ok) return failed(name, label, args, result.error);
+    const view = programView(result.goal, await loadActivity(ctx, result.goal.startDate));
+    const session = view.weeks.flatMap((w) => w.sessions).find((s) => s.date === date);
+    const d = (km: number) => formatDistance(km, result.goal.unit);
+    return {
+      data: {
+        saved: true,
+        skipped,
+        session: session ? { date: formatLongDate(date), workout: session.title, status: session.status, note: session.note ?? undefined } : null,
+        restOfWeek: (view.currentWeek?.sessions ?? []).filter((s) => s.date > today && s.distanceKm > 0).map((s) => `${formatLongDate(s.date)}: ${s.title} ${d(s.adjustedKm ?? s.distanceKm)}${s.note ? ` (${s.note})` : ""}`),
+        guidance: "Never suggest making up a skipped long run by adding it to next week or doubling up; one missed run costs almost no fitness.",
+      },
+      summary: { name, label, args, resultSummary: `${session?.title ?? "Run"} on ${formatLongDate(date)} ${skipped ? "marked skipped" : "back on the plan"}` },
+    };
   },
 
   async archive_goal(args, ctx) {

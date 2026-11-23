@@ -10,7 +10,7 @@ import { classifyWorkout, type ActivityData, type ActivityWorkout } from "./acti
 import { adaptProgram } from "./adapt";
 import { goalView } from "./progress";
 import { goalStore } from "./store";
-import type { DistanceUnit, Goal, GoalSuggestion, GoalsPayload, GoalView } from "./types";
+import type { DistanceUnit, Goal, GoalSuggestion, GoalsPayload, GoalView, ProgramGoal } from "./types";
 
 export interface GoalContext {
   state: AuthState;
@@ -172,4 +172,31 @@ export async function loadGoals(ctx: GoalContext): Promise<GoalsPayload> {
   // Programs first, then goals ending soonest.
   views.sort((a, b) => (a.kind === b.kind ? a.goal.endDate.localeCompare(b.goal.endDate) : a.kind === "program" ? -1 : 1));
   return { today: data.today, goals: views, suggestions: suggestGoals(views, data, defaultUnit(ctx.clientTz)), persistent: store.persistent };
+}
+
+/** How far back a run can be marked skipped: this week's re-balancing is all it affects. */
+const SKIP_LOOKBACK_DAYS = 6;
+const MAX_SKIPS_KEPT = 30;
+
+export type SkipResult = { ok: true; goal: ProgramGoal } | { ok: false; error: string; status: 400 | 404 };
+
+/**
+ * Marks a planned run as not happening (or takes that back). The run then shows as skipped,
+ * stops being asked for, and the rest of the week is re-balanced around it.
+ */
+export async function setSessionSkipped(ctx: GoalContext, goalId: string | undefined, date: string, skipped: boolean): Promise<SkipResult> {
+  const store = goalStore(ctx.state, ctx.clientTz, ctx.guestId);
+  const programs = (await store.list()).filter((g): g is ProgramGoal => g.kind === "program");
+  const goal = goalId ? programs.find((g) => g.id === goalId) : programs.length === 1 ? programs[0] : undefined;
+  if (!goal) return { ok: false, status: 404, error: goalId ? "Training program not found." : programs.length ? "Several programs are active: say which one." : "No active training program." };
+  const today = ctx.clientDate ?? todayIso(ctx.clientTz);
+  if (date > today) return { ok: false, status: 400, error: "Only today's run or an earlier one this week can be skipped." };
+  if (date < shiftIso(today, -SKIP_LOOKBACK_DAYS)) return { ok: false, status: 400, error: "That run is more than a week ago; there is nothing left to re-balance." };
+  const session = goal.plan.weeks.flatMap((w) => w.sessions).find((s) => s.date === date);
+  if (!session || session.distanceKm <= 0 || session.type === "race") return { ok: false, status: 400, error: "There is no planned run on that day to skip." };
+
+  const rest = (goal.skipped ?? []).filter((d) => d !== date && d >= shiftIso(today, -60));
+  const next: ProgramGoal = { ...goal, skipped: (skipped ? [...rest, date] : rest).slice(-MAX_SKIPS_KEPT) };
+  await store.update(next);
+  return { ok: true, goal: next };
 }
