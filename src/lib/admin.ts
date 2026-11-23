@@ -8,8 +8,8 @@ import { isPositive, meanOf, shiftIso, todayIso } from "./utils";
 export type HealthStatus = "attention" | "watch" | "ok" | "limited" | "unknown";
 export type SyncStatus = "ok" | "stale" | "reconnect" | "pending";
 
-/** Nightly cron, so anything older than this has missed at least one run. */
-const STALE_SYNC_MS = 48 * 60 * 60 * 1000;
+/** Daily cron, so a gap past a day plus slack for a late run means at least one run was missed. */
+const STALE_SYNC_MS = 36 * 60 * 60 * 1000;
 /** Only completed days are stored, so yesterday is the newest date a healthy account has. */
 const NO_DATA_AFTER_DAYS = 3;
 /** Days compared against the baseline; a short window so one bad night never raises a flag. */
@@ -20,12 +20,18 @@ const MIN_RECENT_READINGS = 2;
 
 const RHR_RISE_BPM = { watch: 5, attention: 10 };
 const HRV_RATIO = { watch: 0.8, attention: 0.7 };
-const SLEEP_MINUTES = { watch: 360, attention: 300 };
+const SLEEP_MINUTES = { watch: 360, attention: 240 };
+/** Recent sleep within this of a user's own short usual is their normal, not a new change. */
+const SLEEP_HABIT_MARGIN_MINUTES = 45;
 const LOW_READINESS = 50;
 /** Share of a usual day's steps below which movement counts as a marked drop. */
 const STEPS_RATIO = 0.5;
 /** Days looked at to tell which readings a user's device actually sends. */
 const COVERAGE_DAYS = 14;
+/** Days averaged for the per-user metric summary. */
+const SUMMARY_DAYS = 7;
+/** Data this recent counts a user as active. */
+const ACTIVE_WITHIN_DAYS = 2;
 
 export interface AdminDay {
   date: string;
@@ -51,11 +57,34 @@ export interface AdminUserInput {
   hasRefreshToken: boolean;
 }
 
+/**
+ * Body system a flag reads. Flags in one domain are one piece of evidence, so only flags
+ * from different domains escalate together. "recovery" is the readiness score, which is
+ * itself built from sleep, HRV and heart rate, so it never counts as separate evidence.
+ */
+export type FlagDomain = "sleep" | "heart" | "activity" | "recovery";
+
 export interface AdminFlag {
   severity: "attention" | "watch";
   message: string;
-  /** A 3-month change: worth a checkup, but never urgent on its own. */
+  domain: FlagDomain;
+  /** A slow or habitual pattern (3-month change, usual short sleep): worth a conversation, never urgent on its own. */
   longTerm?: boolean;
+}
+
+/** Last 7 days with data against the user's own 30 days before them. */
+export interface AdminMetric {
+  recent: number | null;
+  usual: number | null;
+}
+
+export interface AdminMetrics {
+  sleepMinutes: AdminMetric;
+  restingHeartRate: AdminMetric;
+  heartRateVariability: AdminMetric;
+  steps: AdminMetric;
+  /** Latest readiness score. */
+  readiness: number | null;
 }
 
 export interface AdminUserRow extends AdminUserInput {
@@ -72,13 +101,23 @@ export interface AdminUserRow extends AdminUserInput {
   /** Readings that arrived in the last two weeks, and the ones that never did. */
   receives: string[];
   notReceived: string[];
+  metrics: AdminMetrics;
+  /** The last 14 completed days, oldest first, and whether each one has device data. */
+  recentDays: { date: string; hasData: boolean }[];
 }
 
 export interface AdminOverview {
   users: AdminUserRow[];
   attention: number;
   watch: number;
+  ok: number;
+  /** Limited or no assessment: missing data, or baselines still building. */
+  notAssessed: number;
   syncIssues: number;
+  /** Users with device data in the last two days. */
+  active: number;
+  /** Newest successful sync across all users, a proxy for the nightly job running. */
+  lastSyncAt: Date | null;
 }
 
 const adminEmails = () =>
@@ -110,6 +149,8 @@ function sustained(recent: AdminDay[], pick: (d: AdminDay) => number | null, wor
   const values = recent.map(pick).filter(isPositive).sort(worst);
   return values[MIN_RECENT_READINGS - 1] ?? null;
 }
+
+const hours = (minutes: number) => `${(minutes / 60).toFixed(1)}h`;
 
 const lowestFirst = (a: number, b: number) => a - b;
 const highestFirst = (a: number, b: number) => b - a;
@@ -144,6 +185,8 @@ function coverageOf(days: AdminDay[], today: string) {
   return { receives, notReceived: COVERAGE.map(([label]) => label).filter((label) => !receives.includes(label)) };
 }
 
+const ILLNESS_PREFIX = "Possible illness pattern: ";
+
 /** Checks that say nothing about heart or sleep, so they cannot make a status clear. */
 const ACTIVITY_ONLY = new Set(["activity", "3-month trend"]);
 
@@ -157,10 +200,13 @@ function signalFlags(days: AdminDay[], today: string): { flags: AdminFlag[]; che
   if (signals.illness) {
     flags.push({
       severity: signals.illness.level,
-      message: `Possible illness pattern: ${signals.illness.markers.map((m) => `${m.metric} ${m.detail}`).join("; ")}`,
+      domain: "heart",
+      message: `${ILLNESS_PREFIX}${signals.illness.markers.map((m) => `${m.metric} ${m.detail}`).join("; ")}`,
     });
   }
-  for (const m of signals.drift) flags.push({ severity: "watch", longTerm: true, message: `3-month change: ${m.metric} ${m.detail}` });
+  for (const m of signals.drift) {
+    flags.push({ severity: "watch", domain: m.metric === "steps" ? "activity" : "heart", longTerm: true, message: `3-month change: ${m.metric} ${m.detail}` });
+  }
   return { flags, checked };
 }
 
@@ -170,18 +216,26 @@ function assessHealth(recent: AdminDay[], baseline: AdminDay[]): Assessment {
   const { flags, checked, building } = result;
 
   const sleep = sustained(recent, (d) => d.sleepMinutes, lowestFirst);
+  const baseSleep = metricBaseline(baseline, (d) => d.sleepMinutes);
   if (sleep !== null) {
     checked.push("sleep");
     if (sleep < SLEEP_MINUTES.watch) {
-      flags.push({
-        severity: sleep < SLEEP_MINUTES.attention ? "attention" : "watch",
-        message: `Short sleep: ${(sleep / 60).toFixed(1)}h or less on ${MIN_RECENT_READINGS}+ recent nights`,
-      });
+      // Someone who always sleeps this little has a habit worth raising, not a new change.
+      const habitual = baseSleep !== null && baseSleep < SLEEP_MINUTES.watch && sleep >= baseSleep - SLEEP_HABIT_MARGIN_MINUTES;
+      flags.push(
+        habitual
+          ? { severity: "watch", domain: "sleep", longTerm: true, message: `Usually sleeps under 6h: ${hours(baseSleep)} a night over the last month` }
+          : {
+              severity: sleep < SLEEP_MINUTES.attention ? "attention" : "watch",
+              domain: "sleep",
+              message: `Short sleep: ${hours(sleep)} or less on ${MIN_RECENT_READINGS} of the last ${RECENT_DAYS} nights${baseSleep ? ` (usual ${hours(baseSleep)})` : ""}`,
+            }
+      );
     }
   }
 
   if (recent.length === RECENT_DAYS && recent.every((d) => d.readinessScore !== null && d.readinessScore < LOW_READINESS)) {
-    flags.push({ severity: "watch", message: `Readiness below ${LOW_READINESS} for ${RECENT_DAYS} days` });
+    flags.push({ severity: "watch", domain: "recovery", message: `Readiness below ${LOW_READINESS} for ${RECENT_DAYS} days in a row` });
   }
 
   const rhr = sustained(recent, (d) => d.restingHeartRate, highestFirst);
@@ -193,7 +247,8 @@ function assessHealth(recent: AdminDay[], baseline: AdminDay[]): Assessment {
     if (rise >= RHR_RISE_BPM.watch) {
       flags.push({
         severity: rise >= RHR_RISE_BPM.attention ? "attention" : "watch",
-        message: `Resting heart rate +${rise} bpm vs baseline on ${MIN_RECENT_READINGS}+ recent days`,
+        domain: "heart",
+        message: `Resting heart rate +${rise} bpm above usual ${baseRhr} bpm on ${MIN_RECENT_READINGS} of the last ${RECENT_DAYS} days`,
       });
     }
   }
@@ -207,7 +262,8 @@ function assessHealth(recent: AdminDay[], baseline: AdminDay[]): Assessment {
     if (ratio <= HRV_RATIO.watch) {
       flags.push({
         severity: ratio <= HRV_RATIO.attention ? "attention" : "watch",
-        message: `HRV ${Math.round((1 - ratio) * 100)}% below baseline on ${MIN_RECENT_READINGS}+ recent days`,
+        domain: "heart",
+        message: `HRV ${Math.round((1 - ratio) * 100)}% below usual ${baseHrv} ms on ${MIN_RECENT_READINGS} of the last ${RECENT_DAYS} days`,
       });
     }
   }
@@ -219,7 +275,8 @@ function assessHealth(recent: AdminDay[], baseline: AdminDay[]): Assessment {
     if (steps / baseSteps <= STEPS_RATIO) {
       flags.push({
         severity: "watch",
-        message: `Steps ${Math.round((1 - steps / baseSteps) * 100)}% below usual on ${MIN_RECENT_READINGS}+ recent days`,
+        domain: "activity",
+        message: `Steps ${Math.round((1 - steps / baseSteps) * 100)}% below usual ${baseSteps.toLocaleString("en-US")} on ${MIN_RECENT_READINGS} of the last ${RECENT_DAYS} days`,
       });
     }
   }
@@ -227,11 +284,66 @@ function assessHealth(recent: AdminDay[], baseline: AdminDay[]): Assessment {
   return result;
 }
 
+/** Last 7 days ending at the newest data against the 30 days before them, for the per-user summary. */
+function metricsOf(withData: AdminDay[], lastDataDate: string | null): AdminMetrics {
+  const recentFrom = lastDataDate ? shiftIso(lastDataDate, -(SUMMARY_DAYS - 1)) : "";
+  const recent = lastDataDate ? withData.filter((d) => d.date >= recentFrom) : [];
+  const usual = lastDataDate ? withData.filter((d) => d.date < recentFrom && d.date >= shiftIso(recentFrom, -BASELINE_WINDOW_DAYS)) : [];
+  const metric = (pick: (d: AdminDay) => number | null): AdminMetric => ({ recent: meanOf(recent, pick), usual: metricBaseline(usual, pick) });
+  return {
+    sleepMinutes: metric((d) => d.sleepMinutes),
+    restingHeartRate: metric((d) => d.restingHeartRate),
+    heartRateVariability: metric((d) => d.heartRateVariability),
+    steps: metric((d) => d.steps),
+    readiness: [...recent].reverse().find((d) => d.readinessScore !== null)?.readinessScore ?? null,
+  };
+}
+
+/** Every completed day in the coverage window, so gaps show at a glance. */
+function recentDaysOf(withData: AdminDay[], today: string) {
+  const dates = new Set(withData.map((d) => d.date));
+  return Array.from({ length: COVERAGE_DAYS }, (_, i) => {
+    const date = shiftIso(today, i - COVERAGE_DAYS);
+    return { date, hasData: dates.has(date) };
+  });
+}
+
+/**
+ * Attention when any single flag is severe, or when short-term changes show up in two
+ * independent body systems (say sleep and heart). Several flags from one system, such as
+ * resting heart rate, HRV and the illness pattern that combines them, are one piece of
+ * evidence; readiness is built from those same readings and never counts on its own.
+ */
+function statusOf(flags: AdminFlag[]): "attention" | "watch" {
+  if (flags.some((f) => f.severity === "attention")) return "attention";
+  const domains = new Set(flags.filter((f) => !f.longTerm && f.domain !== "recovery").map((f) => f.domain));
+  return domains.size >= 2 ? "attention" : "watch";
+}
+
+const SEVERITY_ORDER = { attention: 0, watch: 1 } as const;
+
+/** The illness pattern already names the heart rate and HRV changes, so separate flags for them only add noise unless they are more severe. */
+function withoutRepeats(flags: AdminFlag[]): AdminFlag[] {
+  const illness = flags.find((f) => f.message.startsWith(ILLNESS_PREFIX));
+  if (!illness) return flags;
+  return flags.filter((f) => f === illness || f.longTerm || f.domain !== "heart" || SEVERITY_ORDER[f.severity] < SEVERITY_ORDER[illness.severity]);
+}
+
 export function assessUser(user: AdminUserInput, days: AdminDay[], now = Date.now()): AdminUserRow {
   const today = todayIso(user.timeZone ?? undefined);
   const withData = days.filter(hasData);
   const lastDataDate = withData.at(-1)?.date ?? null;
-  const base = { ...user, syncStatus: syncStatusOf(user, now), lastDataDate, flags: [], checked: [], dataStopped: false, ...coverageOf(withData, today) };
+  const base = {
+    ...user,
+    syncStatus: syncStatusOf(user, now),
+    lastDataDate,
+    flags: [],
+    checked: [],
+    dataStopped: false,
+    ...coverageOf(withData, today),
+    metrics: metricsOf(withData, lastDataDate),
+    recentDays: recentDaysOf(withData, today),
+  };
 
   if (!lastDataDate) return { ...base, healthStatus: "unknown", note: "No device data yet" };
 
@@ -247,17 +359,15 @@ export function assessUser(user: AdminUserInput, days: AdminDay[], now = Date.no
   const health = assessHealth(recent, baseline);
   const signals = signalFlags(withData, today);
   const { building } = health;
-  const flags = [...health.flags, ...signals.flags];
+  // Most severe and most recent first, so the first line is the reason for the status.
+  const flags = withoutRepeats([...health.flags, ...signals.flags]).sort(
+    (a, b) => SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity] || Number(Boolean(a.longTerm)) - Number(Boolean(b.longTerm))
+  );
   const checked = [...health.checked, ...signals.checked];
   const row = { ...base, dataStopped, flags, checked };
   const buildingNote = building.length ? `Baseline still building: ${building.join(", ")}` : null;
 
-  if (flags.length) {
-    // Several short-term flags together are urgent; slow 3-month changes never escalate on their own.
-    const shortTerm = flags.filter((f) => !f.longTerm);
-    const healthStatus = flags.some((f) => f.severity === "attention") || shortTerm.length >= 2 ? "attention" : "watch";
-    return { ...row, healthStatus, note: noDataNote ?? buildingNote };
-  }
+  if (flags.length) return { ...row, healthStatus: statusOf(flags), note: noDataNote ?? buildingNote };
   // Clear only counts when current heart or sleep data was actually compared.
   if (dataStopped) return { ...row, healthStatus: "unknown", note: noDataNote };
   if (!checked.some((metric) => !ACTIVITY_ONLY.has(metric))) {
@@ -265,6 +375,9 @@ export function assessUser(user: AdminUserInput, days: AdminDay[], now = Date.no
   }
   return { ...row, healthStatus: "ok", note: buildingNote };
 }
+
+/** Sync overdue, signed out, or the device stopped sending data. */
+export const hasSyncIssue = (u: Pick<AdminUserRow, "syncStatus" | "dataStopped">) => u.syncStatus === "stale" || u.syncStatus === "reconnect" || u.dataStopped;
 
 const STATUS_ORDER: Record<HealthStatus, number> = { attention: 0, watch: 1, unknown: 2, limited: 3, ok: 4 };
 
@@ -310,10 +423,17 @@ export async function loadAdminOverview(db: Db): Promise<AdminOverview> {
     .map((user) => assessUser(user, byUser.get(user.id) ?? []))
     .sort((a, b) => STATUS_ORDER[a.healthStatus] - STATUS_ORDER[b.healthStatus] || a.email.localeCompare(b.email));
 
+  const count = (match: (u: AdminUserRow) => boolean) => rows.filter(match).length;
+  const syncTimes = rows.map((u) => u.lastSyncedAt?.getTime() ?? 0).filter(Boolean);
+  const nowIso = todayIso();
   return {
     users: rows,
-    attention: rows.filter((u) => u.healthStatus === "attention").length,
-    watch: rows.filter((u) => u.healthStatus === "watch").length,
-    syncIssues: rows.filter((u) => u.syncStatus === "stale" || u.syncStatus === "reconnect" || u.dataStopped).length,
+    attention: count((u) => u.healthStatus === "attention"),
+    watch: count((u) => u.healthStatus === "watch"),
+    ok: count((u) => u.healthStatus === "ok"),
+    notAssessed: count((u) => u.healthStatus === "limited" || u.healthStatus === "unknown"),
+    syncIssues: count(hasSyncIssue),
+    active: count((u) => u.lastDataDate !== null && daysBetween(u.lastDataDate, nowIso) <= ACTIVE_WITHIN_DAYS),
+    lastSyncAt: syncTimes.length ? new Date(Math.max(...syncTimes)) : null,
   };
 }
