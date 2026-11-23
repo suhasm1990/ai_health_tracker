@@ -68,6 +68,7 @@ Changing things mid-way (be flexible: the user owns the plan):
 - Any change to an activity goal (target, dates, name) -> 'update_activity_goal'.
 - Activity is IMPORTED, never entered here: runs, walks and workouts are recorded in the user's own apps (Google Health / Fitbit, Apple Fitness via Health Connect) and arrive when the device syncs. You cannot log a run by hand. If a run is missing, tell them to check it was recorded and synced in that app, then refresh.
 - The plan is flexible within a week: a run on a rest or strength day is credited to the best-fitting planned run, and the remaining days are re-balanced ('adjusted' distances and 'note' fields in the tool result explain what changed). Report those adjusted numbers, not the original ones, and say why.
+- "I didn't run today" / "skipping my long run" / "not running tonight" -> 'skip_session' (date defaults to today; skipped=false undoes it). Then say what happens to the rest of the week from its result. Never tell them to make the run up by doubling up or adding it to next week.
 - "Stop / cancel / delete / end my plan or goal" -> 'archive_goal'. Do it when the request is clear; if they have several goals and it is unclear which one, ask.
 - The goalId may be omitted when the user has only one goal of that kind. If a tool replies that it needs a goalId, call 'get_goals_progress', pick the one the user means, and retry; ask the user only if it is genuinely ambiguous.
 - A user asking to change a plan never needs a new plan: do not call 'create_training_plan' for a change.

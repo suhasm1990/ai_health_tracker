@@ -45,6 +45,7 @@ function StatusMark({ status }: { status: SessionView["status"] }) {
   if (status === "covered") return <span className={`${base} bg-emerald-500/40`}><Check className="w-3 h-3" strokeWidth={3} /></span>;
   if (status === "partial") return <span className={`${base} bg-amber-500`}><Minus className="w-3 h-3" strokeWidth={3} /></span>;
   if (status === "missed") return <span className={`${base} bg-slate-300 dark:bg-slate-600`}><X className="w-3 h-3" strokeWidth={3} /></span>;
+  if (status === "skipped") return <span className={`${base} bg-slate-300 dark:bg-slate-600`}><Minus className="w-3 h-3" strokeWidth={3} /></span>;
   return <span className="w-4 h-4" />;
 }
 
@@ -83,6 +84,7 @@ function SessionDetail({ session, unit, today }: { session: SessionView; unit: U
     session.status === "done" && session.distanceKm > 0 ? (session.actualKm > 0 ? `Done: ${formatDistance(session.actualKm, unit)}` : "Done")
     : session.status === "partial" ? `Partly done: ${formatDistance(session.actualKm, unit)} of ${formatDistance(target, unit)}`
     : session.status === "missed" ? "Missed. Let it go; a run on any other day this week still counts."
+    : session.status === "skipped" ? "Skipped"
     : null;
   return (
     <div className="mt-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/60 p-3">

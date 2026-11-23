@@ -27,6 +27,7 @@ import { WellnessSignals } from "@/components/WellnessSignals";
 import { useDashboardData, type DashboardInitial } from "@/hooks/useDashboardData";
 import { useGoals } from "@/hooks/useGoals";
 import { useDayPlan } from "@/hooks/useDayPlan";
+import { useSkipToday } from "@/hooks/useSkipToday";
 import { useTab } from "@/hooks/useTab";
 import type { DailyMetricSummary, DataFreshness } from "@/lib/types";
 import { formatShortDate, withUnit } from "@/lib/utils";
@@ -160,7 +161,8 @@ export function Dashboard({ initialAuthStatus, initialDevices, initialMetrics, i
   const readingsFrom = freshness.fallbackDate ? formatShortDate(freshness.fallbackDate) : null;
   const showStaleNotice = !authStatus.isDemo && !isInitialLoading && !freshness.syncedToday;
 
-  const { plan, hour } = useDayPlan({ today, history: history7Days, baseline, signals: metrics.signals, goals: goals.data?.goals, todayWorkouts: metrics.todayWorkouts });
+  const skip = useSkipToday({ date: goals.data?.today ?? today.date, goals: goals.data?.goals, saveProgramSkip: goals.setSkipped });
+  const { plan, hour } = useDayPlan({ today, history: history7Days, baseline, signals: metrics.signals, goals: goals.data?.goals, todayWorkouts: metrics.todayWorkouts, skippedToday: skip.skippedToday });
   const tabProps = { tab, onChange: setTab };
   const staleNotice = showStaleNotice && <StaleDataNotice freshness={freshness} readingsFrom={readingsFrom} onRefresh={() => refresh()} />;
 
@@ -209,7 +211,7 @@ export function Dashboard({ initialAuthStatus, initialDevices, initialMetrics, i
 
         {tab === "today" && (
           <div key="today" className="space-y-4 sm:space-y-6 animate-in fade-in duration-300">
-            <TodayPlan plan={plan} hour={hour} userName={userName} isLoading={isInitialLoading} onAsk={ask} />
+            <TodayPlan plan={plan} hour={hour} userName={userName} isLoading={isInitialLoading} onAsk={ask} onSkip={skip.setSkipped} skipPending={skip.pending} skipError={skip.error} />
             <ScoreRow plan={plan} today={today} isLoading={isInitialLoading} onOpen={setTab} />
             <WellnessSignals signals={metrics.signals} onAsk={ask} />
             <div id="readiness" className="scroll-mt-20">

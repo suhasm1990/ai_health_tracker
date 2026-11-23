@@ -52,6 +52,15 @@ export async function runMockAdvisor(messages: ChatMessage[], ctx: ToolContext):
     };
   }
 
+  // "I didn't run today", "skipping my long run": take today's planned run off the list.
+  if (/\b(didn['’]?t|did not|won['’]?t|will not|not going to|couldn['’]?t|can['’]?t)\s+(go for a |do my |do the |get my |)?(run|long run|workout)\b|\bskip(ping|ped)?\s+(my |the |today['’]?s )?(run|long run|workout|session)\b/.test(question)) {
+    const r = await call("skip_session");
+    if (r.saved) {
+      const rest = r.restOfWeek?.length ? `\n- **Rest of the week**: ${r.restOfWeek.join(" • ")}` : "\n- **Rest of the week**: nothing else planned; next week starts as written.";
+      return { toolsCalled, text: `Marked **${r.session?.workout ?? "today's run"}** as skipped.\n\n- **What changes**: ${r.session?.note ?? "It's off today's list."}${rest}\n- **Tonight**: use the extra time for an early night.` };
+    }
+  }
+
   // Only an explicit instruction about "my/the/this ... goal|plan|program" stops one; "should I stop training when sick?" must not.
   if (/^\s*(please\s+)?(stop|cancel|delete|remove|end)\s+(my|the|this)\b[\w\s-]{0,50}\b(goal|plan|program)\b/.test(question)) {
     const r = await call("archive_goal");

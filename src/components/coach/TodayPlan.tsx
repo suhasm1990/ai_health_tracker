@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowRight, BedDouble, Check, Dumbbell, Footprints, ListChecks, MessageCircle, Moon, Sparkles, Wand2, type LucideIcon } from "lucide-react";
+import { ArrowRight, BedDouble, Check, Dumbbell, Footprints, ListChecks, Loader2, MessageCircle, Minus, Moon, SkipForward, Sparkles, Undo2, Wand2, type LucideIcon } from "lucide-react";
 import type { DayMode, DayPlan, PlanAction } from "@/lib/coach/dayPlan";
 
 interface TodayPlanProps {
@@ -9,6 +9,10 @@ interface TodayPlanProps {
   userName?: string;
   isLoading?: boolean;
   onAsk: (prompt: string) => void;
+  /** Marks today's workout as skipped, or takes that back. */
+  onSkip?: (skipped: boolean) => void;
+  skipPending?: boolean;
+  skipError?: string | null;
 }
 
 const MODE_STYLES: Record<DayMode, { glow: string; chip: string; label: string; dot: string }> = {
@@ -17,6 +21,9 @@ const MODE_STYLES: Record<DayMode, { glow: string; chip: string; label: string; 
   recover: { glow: "from-amber-500/25 via-orange-500/10", chip: "bg-amber-500/15 text-amber-700 dark:text-amber-300 border-amber-500/30", label: "Recovery day", dot: "bg-amber-500" },
   rest: { glow: "from-rose-500/25 via-pink-500/10", chip: "bg-rose-500/15 text-rose-700 dark:text-rose-300 border-rose-500/30", label: "Rest day", dot: "bg-rose-500" },
 };
+
+/** A skipped workout turns the day into a rest day, whatever readiness said. */
+const SKIPPED_STYLE = { glow: "from-indigo-500/20 via-slate-500/10", chip: "bg-slate-500/15 text-slate-700 dark:text-slate-300 border-slate-500/30", label: "Rest day", dot: "bg-slate-400" };
 
 const ACTION_ICONS: Record<PlanAction["id"], LucideIcon> = { workout: Dumbbell, move: Footprints, sleep: Moon };
 
@@ -33,10 +40,12 @@ function greetingFor(hour: number | null, name?: string) {
 const todayLabel = () => new Date().toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" });
 
 /** The coach's plan for today, at the top of the dashboard. */
-export function TodayPlan({ plan, hour, userName, isLoading, onAsk }: TodayPlanProps) {
-  const style = MODE_STYLES[plan.mode];
+export function TodayPlan({ plan, hour, userName, isLoading, onAsk, onSkip, skipPending, skipError }: TodayPlanProps) {
   const { workout, sleep } = plan;
+  const style = workout.skipped ? SKIPPED_STYLE : MODE_STYLES[plan.mode];
   const doneCount = plan.actions.filter((a) => a.done).length;
+  // A skipped workout is settled, not outstanding: leave it out of the count.
+  const countable = plan.actions.filter((a) => !a.skipped).length;
 
   return (
     <section aria-labelledby="today-plan-title" className="relative overflow-hidden rounded-3xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/70 shadow-sm">
@@ -86,7 +95,7 @@ export function TodayPlan({ plan, hour, userName, isLoading, onAsk }: TodayPlanP
               Today&apos;s checklist
             </span>
             <span className="text-xs text-slate-500 dark:text-slate-400 tabular-nums">
-              {doneCount} of {plan.actions.length} done
+              {doneCount} of {countable} done
             </span>
           </div>
           <ul className="mt-2 divide-y divide-slate-200 dark:divide-slate-700/60">
@@ -95,16 +104,16 @@ export function TodayPlan({ plan, hour, userName, isLoading, onAsk }: TodayPlanP
               return (
                 <li key={action.id} className="flex items-center gap-3 py-2.5 last:pb-0">
                   <span
-                    className={`w-6 h-6 rounded-full flex items-center justify-center shrink-0 transition-colors ${action.done ? "bg-emerald-500 text-white" : "border-2 border-slate-300 dark:border-slate-600 text-slate-400"}`}
+                    className={`w-6 h-6 rounded-full flex items-center justify-center shrink-0 transition-colors ${action.done ? "bg-emerald-500 text-white" : action.skipped ? "bg-slate-300 dark:bg-slate-600 text-white dark:text-slate-200" : "border-2 border-slate-300 dark:border-slate-600 text-slate-400"}`}
                     aria-hidden
                   >
-                    {action.done ? <Check className="w-3.5 h-3.5" strokeWidth={3} /> : <Icon className="w-3 h-3" />}
+                    {action.done ? <Check className="w-3.5 h-3.5" strokeWidth={3} /> : action.skipped ? <Minus className="w-3.5 h-3.5" strokeWidth={3} /> : <Icon className="w-3 h-3" />}
                   </span>
-                  <span className={`flex-1 min-w-0 text-sm font-medium truncate ${action.done ? "text-slate-400 dark:text-slate-500 line-through decoration-slate-300 dark:decoration-slate-600" : "text-slate-800 dark:text-slate-100"}`}>
+                  <span className={`flex-1 min-w-0 text-sm font-medium truncate ${action.done || action.skipped ? "text-slate-400 dark:text-slate-500 line-through decoration-slate-300 dark:decoration-slate-600" : "text-slate-800 dark:text-slate-100"}`}>
                     {action.label}
                   </span>
                   <span className="text-xs text-slate-500 dark:text-slate-400 shrink-0 tabular-nums">{action.detail}</span>
-                  <span className="sr-only">{action.done ? "done" : "not done yet"}</span>
+                  <span className="sr-only">{action.done ? "done" : action.skipped ? "skipped" : "not done yet"}</span>
                 </li>
               );
             })}
@@ -130,6 +139,12 @@ export function TodayPlan({ plan, hour, userName, isLoading, onAsk }: TodayPlanP
                 Done
               </span>
             )}
+            {workout.skipped && (
+              <span className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full bg-slate-400/15 text-slate-600 dark:text-slate-300 border border-slate-400/30">
+                <Minus className="w-3 h-3" />
+                Skipped
+              </span>
+            )}
             </div>
             <h3 className="mt-2 text-xl font-bold tracking-tight">{workout.title}</h3>
             <p className="mt-1 mb-3 text-sm text-slate-600 dark:text-slate-300 leading-relaxed">{workout.detail}</p>
@@ -138,7 +153,23 @@ export function TodayPlan({ plan, hour, userName, isLoading, onAsk }: TodayPlanP
                 Planned: <span className="line-through decoration-slate-400 dark:decoration-slate-500">{workout.original.title}</span>
               </p>
             )}
-            <p className="mt-auto pt-3 border-t border-emerald-500/20 dark:border-white/10 text-xs text-slate-600 dark:text-slate-400 leading-relaxed">{workout.reason}</p>
+            <div className="mt-auto pt-3 border-t border-emerald-500/20 dark:border-white/10">
+              <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">{workout.reason}</p>
+              {onSkip && (workout.canSkip || workout.skipped) && !isLoading && (
+                <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2">
+                  <button
+                    type="button"
+                    onClick={() => onSkip(!workout.skipped)}
+                    disabled={skipPending}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold border transition-colors disabled:opacity-60 bg-white/70 dark:bg-slate-800 text-slate-700 dark:text-slate-200 border-slate-300 dark:border-slate-700 hover:border-emerald-500 hover:text-emerald-700 dark:hover:text-emerald-300"
+                  >
+                    {skipPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : workout.skipped ? <Undo2 className="w-3.5 h-3.5" /> : <SkipForward className="w-3.5 h-3.5" />}
+                    {workout.skipped ? "Undo skip" : "Skip today"}
+                  </button>
+                  {skipError && <span role="alert" className="text-xs text-rose-600 dark:text-rose-400">{skipError}</span>}
+                </div>
+              )}
+            </div>
           </article>
 
           {sleep ? (
