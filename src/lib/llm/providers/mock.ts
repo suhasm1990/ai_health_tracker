@@ -1,11 +1,22 @@
 import { parseGoalRequest } from "../../goals/parse";
 import { defaultUnit } from "../../goals/service";
-import { formatClock, todayIso } from "../../utils";
+import { coachStore } from "../../coach/store";
+import { formatClock, shiftIso, todayIso } from "../../utils";
 import type { AgentRun } from "../loop";
 import { executeHealthTool, type ToolContext } from "../tools";
 import type { ChatMessage, ToolExecutionSummary } from "../types";
 
 const n = (value: unknown, unit: string) => (typeof value === "number" && value > 0 ? `**${value.toLocaleString()} ${unit}**` : "**—**");
+
+const HABIT_PATTERNS: { habit: string; label: string; match: RegExp }[] = [
+  { habit: "alcohol", label: "alcohol", match: /\b(had|drank|drinking)\b.*\b(beers?|drinks?|wine|alcohol|cocktails?|pints?|whisk(e)?y)\b/ },
+  { habit: "late_caffeine", label: "late caffeine", match: /\b(coffee|caffeine|espresso|energy drink)\b.*\b([2-9]\s*(pm|p\.m\.)|afternoon|evening|late)\b/ },
+  { habit: "late_meal", label: "a late meal", match: /\b(late (dinner|meal|snack)|ate late)\b/ },
+  { habit: "stress", label: "a stressful day", match: /\b(stressful|stressed( out)?|so much stress)\b/ },
+  { habit: "meditation", label: "meditation", match: /\b(meditated|meditation|breathwork)\b/ },
+  { habit: "sauna", label: "sauna", match: /\b(sauna|hot bath)\b/ },
+  { habit: "travel", label: "travel", match: /\b(flew|flight|jet ?lag(ged)?|travel(l)?ed)\b/ },
+];
 
 /* eslint-disable @typescript-eslint/no-explicit-any -- tool payloads are provider-facing JSON */
 type Intent = { match: RegExp; run: () => Promise<AgentRun> };
@@ -22,6 +33,42 @@ export async function runMockAdvisor(messages: ChatMessage[], ctx: ToolContext):
     toolsCalled.push(result.summary);
     return result.data;
   };
+
+  // Memory and journal: explicit "remember …", "forget …", and habits mentioned in passing.
+  const raw = [...messages].reverse().find((m) => m.role === "user")?.content ?? "";
+  const store = coachStore(ctx.state, ctx.clientTz, ctx.guestId);
+  const remember = raw.match(/^\s*(?:please\s+)?remember(?:\s+that)?\s+(.{3,})/i);
+  if (remember) {
+    const fact = remember[1].replace(/\.$/, "");
+    const category = /injur|pain|sore|hurt|knee|ankle|back|shin|hip/i.test(fact) ? "injury" : /morning|evening|weekday|weekend|work|shift|schedule|kids/i.test(fact) ? "schedule" : /prefer|like|love|hate|don'?t|never|always/i.test(fact) ? "preference" : "other";
+    await call("remember_fact", { fact, category });
+    return { toolsCalled, text: `Got it. I'll remember that: *${fact}*. You can see or remove what I remember on the Today tab.` };
+  }
+  if (/what do you (know|remember) about me|what have you (saved|remembered)/.test(question)) {
+    const memories = await store.memories();
+    return { toolsCalled, text: memories.length ? `**What I remember**:\n${memories.map((m) => `- ${m.text}`).join("\n")}` : "I haven't saved anything about you yet. Tell me things like an injury, your schedule or your preferences, and I'll keep them in mind." };
+  }
+  const forget = question.match(/^\s*(?:please\s+)?forget(?:\s+(?:that|about))?\s+(.{3,})/);
+  if (forget) {
+    const words = forget[1].split(/\W+/).filter((w) => w.length > 3);
+    const target = (await store.memories()).find((m) => words.some((w) => m.text.toLowerCase().includes(w)));
+    if (!target) return { toolsCalled, text: "I couldn't find a saved fact matching that. Ask me what I remember to see the list." };
+    await call("forget_fact", { id: target.id });
+    return { toolsCalled, text: `Forgotten: *${target.text}*` };
+  }
+  const habitHits = HABIT_PATTERNS.filter((h) => h.match.test(question));
+  if (habitHits.length && !/\?\s*$/.test(question)) {
+    const day = /last night|yesterday/.test(question) ? shiftIso(ctx.clientDate ?? todayIso(ctx.clientTz), -1) : undefined;
+    for (const h of habitHits) {
+      const amount = h.habit === "alcohol" ? Number(question.match(/\b(\d+)\s*(?:beers?|drinks?|glass|cocktails?|pints?)/)?.[1]) || undefined : undefined;
+      await call("log_habit", { habit: h.habit, ...(day && { date: day }), ...(amount && { amount }) });
+    }
+    return { toolsCalled, text: `Logged ${habitHits.map((h) => `**${h.label}**`).join(" and ")} for ${day ? "yesterday" : "today"}. After a few weeks of logging, the journal shows what it does to your next-morning HRV and sleep.` };
+  }
+  if (/what affects|my habits|journal|does (alcohol|drinking|coffee|caffeine|stress|a late meal)\b.*(affect|hurt|impact|change)/.test(question)) {
+    const j = await call("get_journal_insights");
+    return { toolsCalled, text: j.insights.length ? `**Your habits**:\n${j.insights.map((i: any) => `- ${i.headline}`).join("\n")}\n\n*Patterns in your own data, not proof of cause.*` : "No habits logged yet. Tap a habit on the Today tab, or just tell me (\"had 2 beers last night\")." };
+  }
 
   // Goal creation first: "300k steps in November" must not fall through to the steps summary.
   const original = [...messages].reverse().find((m) => m.role === "user")?.content ?? "";

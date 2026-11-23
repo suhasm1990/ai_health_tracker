@@ -93,7 +93,8 @@ export default function PrivacyPage() {
           <li>Your profile (name, email, time zone) and the dates you joined and last synced.</li>
           <li>Daily health summaries and workouts, starting with up to 30 days before you join and continuing nightly.</li>
           <li>The Google sign-in token used for nightly sync, encrypted.</li>
-          <li>An encrypted sign-in cookie in your browser. The app also remembers your theme and whether you dismissed the install banner on your device.</li>
+          <li>Facts you ask the AI coach to remember (for example an injury or your schedule) and habits you log in the journal. You can see and delete saved facts on the Today tab, and untick logged habits.</li>
+          <li>An encrypted sign-in cookie in your browser. The app also remembers your theme, whether you dismissed the install banner, and your recent coach conversation, on your device only. Clearing the chat removes it.</li>
         </ul>
         <p>
           The app runs on Vercel, and data is stored in a hosted PostgreSQL database. Stored data is kept until you ask for it to be

@@ -5,6 +5,7 @@ import { useEffect, useImperativeHandle, useRef, useState, type Ref } from "reac
 import { renderMarkdown } from "@/lib/markdown";
 import { SUGGESTION_ICONS } from "@/components/GoalsPanel";
 import { GOAL_MUTATION_TOOLS, type GoalSuggestion } from "@/lib/goals/types";
+import { JOURNAL_MUTATION_TOOLS } from "@/lib/journal/habits";
 import type { AgentResponse, ChatMessage, ToolExecutionSummary } from "@/lib/llm/types";
 import type { LlmStatus } from "@/lib/types";
 import { clientLocale, formatClock } from "@/lib/utils";
@@ -20,6 +21,8 @@ export interface ChatAssistantHandle {
   ask(text: string): void;
   /** Opens the assistant without sending anything, e.g. to pick a goal suggestion. */
   open(): void;
+  /** Opens the assistant with text in the composer, ready to finish and send. */
+  draft(text: string): void;
 }
 
 interface ChatAssistantProps {
@@ -29,6 +32,22 @@ interface ChatAssistantProps {
   suggestions?: GoalSuggestion[];
   /** Called after the coach creates or removes a goal, so the dashboard can reload. */
   onGoalsChanged?: () => void;
+  /** Called after the coach saves a memory or logs a habit. */
+  onJournalChanged?: () => void;
+  /** Conversation is kept in this browser under this key, so the coach picks up where you left off. */
+  storageKey?: string;
+}
+
+const MAX_STORED_MESSAGES = 40;
+
+function readStoredChat(key?: string): MessageItem[] | null {
+  if (!key) return null;
+  try {
+    const parsed = JSON.parse(localStorage.getItem(key) ?? "null");
+    return Array.isArray(parsed) && parsed.length ? (parsed as MessageItem[]) : null;
+  } catch {
+    return null;
+  }
 }
 
 const STARTER_PROMPTS = [
@@ -39,7 +58,7 @@ const STARTER_PROMPTS = [
 ];
 
 const WELCOME =
-  'Hello! I am your **AI Health Coach** (Powered by Google Health API).\n\nI can inspect your live wearable data using real-time tool calling. I can also **set goals and build training plans** that your dashboard tracks automatically:\n- *"Train me for a half marathon"*\n- *"Set a goal of 300k steps this month"*\n- *"How well did I sleep?"*';
+  'Hello! I am your **AI Health Coach** (Powered by Google Health API).\n\nI can inspect your live wearable data using real-time tool calling. I can **set goals and build training plans** that your dashboard tracks automatically, and I **remember** what you tell me (an injury, your schedule) across visits:\n- *"Train me for a half marathon"*\n- *"Set a goal of 300k steps this month"*\n- *"How well did I sleep?"*';
 
 const assistantMessage = (content: string, extra: Partial<MessageItem> = {}): MessageItem => ({
   id: `assistant-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
@@ -73,7 +92,7 @@ async function requestReply(history: MessageItem[], modelId?: string): Promise<P
 const CHIP = "inline-flex items-center space-x-1.5 px-2.5 py-1 rounded-full bg-white dark:bg-slate-800 border text-slate-700 dark:text-slate-300 hover:border-emerald-500 hover:text-emerald-600 dark:hover:text-emerald-400 text-[11px] transition-all shadow-xs";
 const ICON_BTN = "p-1.5 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors";
 
-export function ChatAssistant({ ref, llm, suggestions = [], onGoalsChanged }: ChatAssistantProps) {
+export function ChatAssistant({ ref, llm, suggestions = [], onGoalsChanged, onJournalChanged, storageKey }: ChatAssistantProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
   const [input, setInput] = useState("");
@@ -93,7 +112,16 @@ export function ChatAssistant({ ref, llm, suggestions = [], onGoalsChanged }: Ch
       /* storage blocked; the choice lasts for this page only */
     }
   };
-  const [messages, setMessages] = useState<MessageItem[]>(() => [assistantMessage(WELCOME, { id: "welcome" })]);
+  // The panel opens closed, so restoring here cannot change the server-rendered markup.
+  const [messages, setMessages] = useState<MessageItem[]>(() => readStoredChat(storageKey) ?? [assistantMessage(WELCOME, { id: "welcome" })]);
+  useEffect(() => {
+    if (!storageKey) return;
+    try {
+      localStorage.setItem(storageKey, JSON.stringify(messages.slice(-MAX_STORED_MESSAGES)));
+    } catch {
+      /* storage full or blocked: the chat still works for this page */
+    }
+  }, [messages, storageKey]);
   /** Conversation awaiting a reply; non-null while a request is in flight. */
   const [pending, setPending] = useState<MessageItem[] | null>(null);
   const [expandedTools, setExpandedTools] = useState<Record<string, boolean>>({});
@@ -120,6 +148,10 @@ export function ChatAssistant({ ref, llm, suggestions = [], onGoalsChanged }: Ch
     open() {
       setIsOpen(true);
     },
+    draft(text: string) {
+      setIsOpen(true);
+      setInput(text);
+    },
   }));
 
   useEffect(() => {
@@ -130,6 +162,7 @@ export function ChatAssistant({ ref, llm, suggestions = [], onGoalsChanged }: Ch
         setMessages((prev) => [...prev, assistantMessage(data.message?.content || "I couldn't generate a response.", { toolsCalled: data.toolsCalled ?? [] })]);
         if (data.provider && data.model) setProvider({ name: data.provider, model: data.model });
         if (data.toolsCalled?.some((t) => GOAL_MUTATION_TOOLS.includes(t.name))) onGoalsChanged?.();
+        if (data.toolsCalled?.some((t) => JOURNAL_MUTATION_TOOLS.includes(t.name))) onJournalChanged?.();
       })
       .catch((err: unknown) => {
         const reason = err instanceof Error ? err.message : "Network error";
